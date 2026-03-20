@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material.icons.filled.ViewTimeline
 import androidx.compose.material.icons.filled.PhotoAlbum
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import kotlinx.coroutines.launch
 import androidx.compose.material3.*
@@ -51,6 +52,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -70,7 +72,8 @@ import android.net.Uri
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Error
-import com.localcloud.photosclient.presentation.album.AlbumDetailScreen
+import com.localcloud.photosclient.presentation.albums.AlbumsScreen
+import com.localcloud.photosclient.presentation.albums.AlbumDetailScreen
 import com.localcloud.photosclient.presentation.timeline.TimelineScreen
 import com.localcloud.photosclient.presentation.failed.FailedUploadsScreen
 import androidx.compose.animation.*
@@ -79,6 +82,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Warning
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.localcloud.photosclient.presentation.settings.SettingsScreen
 import com.localcloud.photosclient.presentation.settings.SettingsViewModel
@@ -94,14 +98,19 @@ import com.localcloud.photosclient.ui.Album
 import com.localcloud.photosclient.presentation.home.HomeSelectionState
 import androidx.compose.foundation.BorderStroke
 import com.localcloud.photosclient.presentation.components.DenseMediaItem
+import com.localcloud.photosclient.ui.theme.NimbusTheme
 
 import com.localcloud.photosclient.data.repository.AuthRepository
-import com.localcloud.photosclient.presentation.auth.LoginScreen
+import com.localcloud.photosclient.data.repository.DeviceAuthManager
+import com.localcloud.photosclient.data.repository.AuthState
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
     private lateinit var mediaStoreObserver: MediaStoreObserver
+
+    @javax.inject.Inject
+    lateinit var deviceAuthManager: DeviceAuthManager
 
     @javax.inject.Inject
     lateinit var authRepository: AuthRepository
@@ -116,26 +125,51 @@ class MainActivity : ComponentActivity() {
         )
         
         setContent {
-            MaterialTheme(
-                colorScheme = darkColorScheme(
-                    background = Color(0xFF121212),
-                    surface = Color(0xFF1E1E1E),
-                    primary = Color(0xFFBB86FC)
-                )
-            ) {
+            NimbusTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
                     val navController = rememberNavController()
-                    val startDestination = if (authRepository.isLoggedIn()) "home" else "login"
 
-                    NavHost(navController = navController, startDestination = startDestination) {
-                        composable("login") {
-                            LoginScreen(
-                                onLoginSuccess = { 
+                    NavHost(navController = navController, startDestination = "splash") {
+                        composable("splash") {
+                            SplashScreen(
+                                deviceAuthManager = deviceAuthManager,
+                                onAuthenticated = {
                                     navController.navigate("home") {
-                                        popUpTo("login") { inclusive = true }
+                                        popUpTo("splash") { inclusive = true }
+                                    }
+                                },
+                                onNotAuthorized = { deviceId ->
+                                    navController.navigate("not_authorized/$deviceId") {
+                                        popUpTo("splash") { inclusive = true }
+                                    }
+                                },
+                                onError = { message ->
+                                    navController.navigate("auth_error/${Uri.encode(message)}") {
+                                        popUpTo("splash") { inclusive = true }
+                                    }
+                                }
+                            )
+                        }
+                        composable(
+                            route = "not_authorized/{deviceId}",
+                            arguments = listOf(navArgument("deviceId") { type = NavType.StringType })
+                        ) { backStackEntry ->
+                            val deviceId = backStackEntry.arguments?.getString("deviceId") ?: ""
+                            DeviceNotAuthorizedScreen(deviceId = deviceId)
+                        }
+                        composable(
+                            route = "auth_error/{message}",
+                            arguments = listOf(navArgument("message") { type = NavType.StringType })
+                        ) { backStackEntry ->
+                            val message = Uri.decode(backStackEntry.arguments?.getString("message") ?: "Unknown error")
+                            AuthErrorScreen(
+                                message = message,
+                                onRetry = {
+                                    navController.navigate("splash") {
+                                        popUpTo("auth_error/{message}") { inclusive = true }
                                     }
                                 }
                             )
@@ -153,23 +187,23 @@ class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 onSettingsClick = { navController.navigate("settings") },
-                                onAlbumClick = { folderPath -> 
-                                    navController.navigate("album/${Uri.encode(folderPath)}")
+                                onAlbumClick = { bucketName -> 
+                                    navController.navigate("album/${Uri.encode(bucketName)}")
                                 },
                                 onFailedClick = { navController.navigate("failed_uploads") }
                             )
                         }
                         composable(
-                            route = "album/{folderPath}",
-                            arguments = listOf(navArgument("folderPath") { type = NavType.StringType })
+                            route = "album/{bucketName}",
+                            arguments = listOf(navArgument("bucketName") { type = NavType.StringType })
                         ) { backStackEntry ->
-                            val encodedFolder = backStackEntry.arguments?.getString("folderPath") ?: ""
-                            val folderPath = Uri.decode(encodedFolder)
+                            val encodedBucket = backStackEntry.arguments?.getString("bucketName") ?: ""
+                            val bucketName = Uri.decode(encodedBucket)
                             
                             AlbumDetailScreen(
-                                folderPath = folderPath,
+                                bucketName = bucketName,
                                 viewModel = viewModel,
-                                onNavigateBack = { navController.popBackStack() },
+                                onBackClick = { navController.popBackStack() },
                                 onMediaClick = { media, allMedia ->
                                     val index = allMedia.indexOf(media)
                                     if (index != -1) {
@@ -198,12 +232,40 @@ class MainActivity : ComponentActivity() {
                             SettingsScreen(
                                 viewModel = settingsViewModel,
                                 onNavigateBack = { navController.popBackStack() },
-                                onNavigateToFreeUpSpace = { navController.navigate("free_up_space") }
+                                onNavigateToFreeUpSpace = { navController.navigate("free_up_space") },
+                                onNavigateToFavorites = { navController.navigate("favorites") },
+                                onNavigateToTrash = { navController.navigate("trash") }
                             )
                         }
                         composable("free_up_space") {
                             com.localcloud.photosclient.presentation.settings.FreeUpSpaceScreen(
                                 onNavigateBack = { navController.popBackStack() }
+                            )
+                        }
+                        composable("favorites") {
+                            com.localcloud.photosclient.presentation.favorites.FavoritesScreen(
+                                viewModel = viewModel,
+                                onBackClick = { navController.popBackStack() },
+                                onMediaClick = { media, allMedia ->
+                                    val index = allMedia.indexOf(media)
+                                    if (index != -1) {
+                                        viewModel.onMediaClick(media, allMedia)
+                                        navController.navigate("viewer/$index")
+                                    }
+                                }
+                            )
+                        }
+                        composable("trash") {
+                            com.localcloud.photosclient.presentation.trash.TrashScreen(
+                                viewModel = viewModel,
+                                onBackClick = { navController.popBackStack() },
+                                onMediaClick = { media, allMedia ->
+                                    val index = allMedia.indexOf(media)
+                                    if (index != -1) {
+                                        viewModel.onMediaClick(media, allMedia)
+                                        navController.navigate("viewer/$index")
+                                    }
+                                }
                             )
                         }
                     }
@@ -221,6 +283,175 @@ class MainActivity : ComponentActivity() {
         mediaStoreObserver.unregister()
     }
 }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Splash Screen — silent device auth
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+@Composable
+fun SplashScreen(
+    deviceAuthManager: DeviceAuthManager,
+    onAuthenticated: () -> Unit,
+    onNotAuthorized: (String) -> Unit,
+    onError: (String) -> Unit
+) {
+    LaunchedEffect(Unit) {
+        val result = deviceAuthManager.ensureAuthenticated()
+        when (result) {
+            is AuthState.Authenticated -> onAuthenticated()
+            is AuthState.NotAuthorized -> onNotAuthorized(result.deviceId)
+            is AuthState.Error -> onError(result.message)
+            AuthState.Loading -> { /* won't happen here */ }
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text(
+                text = "Nimbus",
+                style = MaterialTheme.typography.headlineLarge,
+                color = Color.White,
+                fontWeight = FontWeight.Bold
+            )
+            CircularProgressIndicator(
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(24.dp),
+                strokeWidth = 2.dp
+            )
+        }
+    }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Device Not Authorized Screen
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+@Composable
+fun DeviceNotAuthorizedScreen(deviceId: String) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .padding(32.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(24.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Warning,
+                contentDescription = null,
+                tint = Color(0xFFFF9800),
+                modifier = Modifier.size(64.dp)
+            )
+
+            Text(
+                text = "Device Not Authorized",
+                style = MaterialTheme.typography.headlineSmall,
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center
+            )
+
+            Text(
+                text = "This device is not authorized to access Nimbus.\n\nAdd your device ID in the server .env file:",
+                style = MaterialTheme.typography.bodyLarge,
+                color = Color.White.copy(alpha = 0.7f),
+                textAlign = TextAlign.Center
+            )
+
+            Surface(
+                color = Color(0xFF1A1A1A),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "ALLOWED_DEVICE_ID=",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Color(0xFF4CAF50),
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                    )
+                    Text(
+                        text = deviceId,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                    )
+                }
+            }
+
+            Text(
+                text = "Then restart the server and reopen this app.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.White.copy(alpha = 0.5f),
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Auth Error Screen (network error etc)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+@Composable
+fun AuthErrorScreen(message: String, onRetry: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .padding(32.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(24.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Error,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(64.dp)
+            )
+
+            Text(
+                text = "Connection Error",
+                style = MaterialTheme.typography.headlineSmall,
+                color = Color.White,
+                fontWeight = FontWeight.Bold
+            )
+
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyLarge,
+                color = Color.White.copy(alpha = 0.7f),
+                textAlign = TextAlign.Center
+            )
+
+            Button(onClick = onRetry) {
+                Text("Retry")
+            }
+        }
+    }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// HomeScreen + Gallery (unchanged below)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -275,7 +506,7 @@ fun HomeScreen(
     var selectedTabIndex by remember { mutableStateOf(0) }
     
     val photosGridState = rememberLazyGridState()
-    val timelineGridState = rememberLazyGridState()
+    val timelineGridState = rememberLazyStaggeredGridState()
     val albumsGridState = rememberLazyGridState()
     val coroutineScope = rememberCoroutineScope()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -438,10 +669,9 @@ fun HomeScreen(
                                 )
                             }
                             1 -> {
-                                AlbumsGrid(
+                                AlbumsScreen(
                                     viewModel = viewModel,
-                                    onAlbumClick = onAlbumClick,
-                                    gridState = albumsGridState
+                                    onAlbumClick = onAlbumClick
                                 )
                             }
                             2 -> {
@@ -507,85 +737,6 @@ fun SyncStatusBar(stats: SyncStats) {
                 )
             }
         }
-    }
-}
-
-
-
-@Composable
-fun AlbumsGrid(viewModel: MainViewModel, onAlbumClick: (String) -> Unit, gridState: LazyGridState = rememberLazyGridState()) {
-    val albums by viewModel.albumFlow.collectAsState()
-    
-    LazyVerticalGrid(
-        state = gridState,
-        columns = GridCells.Fixed(2),
-        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-        contentPadding = PaddingValues(vertical = 16.dp)
-    ) {
-        items(albums) { album ->
-            AlbumGridCard(album = album, onClick = { onAlbumClick(album.folderPath) })
-        }
-    }
-}
-
-@Composable
-fun AlbumGridCard(album: Album, onClick: () -> Unit) {
-    var isPressed by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.96f else 1f,
-        animationSpec = spring(dampingRatio = 0.8f, stiffness = 400f),
-        label = "scale"
-    )
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .scale(scale)
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onPress = {
-                        isPressed = true
-                        try {
-                            awaitRelease()
-                        } finally {
-                            isPressed = false
-                        }
-                    },
-                    onTap = { onClick() }
-                )
-            }
-    ) {
-        Box(
-            modifier = Modifier
-                .aspectRatio(1f)
-                .clip(RoundedCornerShape(16.dp))
-                .background(Color.DarkGray)
-        ) {
-            AsyncImage(
-                model = File(album.coverPath),
-                contentDescription = album.name,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
-        }
-        
-        Spacer(modifier = Modifier.height(8.dp))
-        
-        Text(
-            text = album.name, 
-            color = MaterialTheme.colorScheme.onBackground,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold, 
-            maxLines = 1,
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text(
-            text = album.count.toString(), 
-            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
-            style = MaterialTheme.typography.bodySmall
-        )
     }
 }
 
@@ -723,7 +874,7 @@ fun MediaItem(
         val isCloudOnly = media.localAvailability == com.localcloud.photosclient.data.LocalAvailability.CLOUD_ONLY
 
         AsyncImage(
-            model = if (isCloudOnly) media.remoteId else File(media.path), // Temporarily use remoteId for coil placeholder, or just path if file doesn't exist coil will handle it. We should ideally have a cache mechanism here later.
+            model = if (isCloudOnly) media.remoteId else File(media.path),
             contentDescription = "Photo",
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),
@@ -843,14 +994,14 @@ fun SyncDashboard(stats: SyncStats) {
             count = stats.synced,
             label = "Synced",
             icon = Icons.Default.CloudDone,
-            color = Color(0xFF4CAF50) // Material Green
+            color = Color(0xFF4CAF50)
         )
         if (stats.uploading > 0) {
             SyncStatChip(
                 count = stats.uploading,
                 label = "Uploading",
                 icon = Icons.Default.CloudUpload,
-                color = Color(0xFF2196F3) // Material Blue
+                color = Color(0xFF2196F3)
             )
         }
         if (stats.pending > 0) {
@@ -858,7 +1009,7 @@ fun SyncDashboard(stats: SyncStats) {
                 count = stats.pending,
                 label = "Pending",
                 icon = Icons.Default.Schedule,
-                color = Color(0xFFFF9800) // Material Orange
+                color = Color(0xFFFF9800)
             )
         }
         if (stats.failed > 0) {
@@ -910,5 +1061,3 @@ fun SyncStatChip(
         }
     }
 }
-
-

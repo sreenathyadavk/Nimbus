@@ -37,6 +37,12 @@ class TokenDataStore(context: Context) {
         }
     }
 
+    fun saveDeviceId(deviceId: String) {
+        prefs.edit().putString("device_id", deviceId).apply()
+    }
+
+    fun getDeviceId(): String? = prefs.getString("device_id", null)
+
     fun saveLastSyncAt(instant: Instant) {
         prefs.edit().putLong("last_sync_at", instant.toEpochMilli()).apply()
     }

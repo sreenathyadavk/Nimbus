@@ -8,7 +8,7 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [LocalMedia::class], version = 5, exportSchema = false)
+@Database(entities = [LocalMedia::class], version = 6, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun mediaDao(): MediaDao
@@ -56,6 +56,7 @@ abstract class AppDatabase : RoomDatabase() {
                     "photos_database"
                 )
                 .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance
                 instance

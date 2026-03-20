@@ -1,8 +1,14 @@
+package com.localcloud.photosclient.di
+
 import com.localcloud.photosclient.data.preferences.TokenDataStore
 import com.localcloud.photosclient.network.AuthInterceptor
 import com.localcloud.photosclient.network.TokenAuthenticator
+import android.content.Context
+import com.localcloud.photosclient.network.ApiService
+import com.localcloud.photosclient.network.ApiClient
 import dagger.Module
 import dagger.Provides
+import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
@@ -38,7 +44,7 @@ object NetworkModule {
         apiService: dagger.Lazy<ApiService>
     ): OkHttpClient {
         val loggingInterceptor = HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.HEADERS
+            level = HttpLoggingInterceptor.Level.BODY
         }
 
         return OkHttpClient.Builder()
@@ -60,5 +66,11 @@ object NetworkModule {
             .addConverterFactory(GsonConverterFactory.create())
             .build()
             .create(ApiService::class.java)
+    }
+
+    @EntryPoint
+    @InstallIn(SingletonComponent::class)
+    interface ApiServiceEntryPoint {
+        fun apiService(): ApiService
     }
 }

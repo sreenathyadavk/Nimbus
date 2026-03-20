@@ -47,8 +47,8 @@ public class MediaService {
             }
         }
 
-        // Check if exists
-        Optional<Media> existing = mediaRepository.findByHash(hash);
+        // Check if exists FOR THIS DEVICE
+        Optional<Media> existing = mediaRepository.findByHashAndDeviceId(hash, deviceId);
         if (existing.isPresent()) {
             Media media = existing.get();
             if (media.isDeleted()) {
@@ -57,14 +57,14 @@ public class MediaService {
                 media.setUploadDate(new Date());
                 return mediaRepository.save(media);
             }
-            logger.info("Media already exists with hash: {}", hash);
-            return media; // Duplicate detected, return existing effectively making operation idempotent
+            logger.info("Media already exists for device {} with hash: {}", deviceId, hash);
+            return media; // Duplicate detected, return existing
         }
 
         Date creationDate = originalCreationDate != null ? originalCreationDate : new Date();
 
         // 1. Store File Physically
-        String relativePath = storageService.storeFile(file, hash, creationDate);
+        String relativePath = storageService.storeFile(file, hash, creationDate, deviceId);
 
         // 2. Draft Database Media Entry
         Media media = new Media();
@@ -82,7 +82,7 @@ public class MediaService {
             Media savedMedia = mediaRepository.save(media);
 
             // 3. Dispatch Async Thumbnail Generation
-            thumbnailEngine.generateThumbnailAsync(relativePath, hash).thenAccept(thumbPath -> {
+            thumbnailEngine.generateThumbnailAsync(relativePath, hash, deviceId).thenAccept(thumbPath -> {
                 if (thumbPath != null) {
                     savedMedia.setThumbnailPath(thumbPath);
                     mediaRepository.save(savedMedia);
@@ -92,9 +92,43 @@ public class MediaService {
             return savedMedia;
         } catch (org.springframework.dao.DuplicateKeyException e) {
             logger.warn("DuplicateKeyException caught for hash: {}, returning existing media", hash);
-            return mediaRepository.findByHash(hash).orElse(media);
+            return mediaRepository.findByHashAndDeviceId(hash, deviceId).orElse(media);
         }
     }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // Device-scoped queries
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    public List<Media> getAllActiveMediaForDevice(String deviceId) {
+        return mediaRepository.findByDeviceIdAndIsDeletedFalse(deviceId);
+    }
+
+    public Page<MediaDTO> getAllActiveMediaPaginated(String deviceId, int page, int size) {
+        PageRequest pageRequest = PageRequest.of(page, size, Sort.by("uploadDate").descending());
+        return mediaRepository.findByDeviceIdAndIsDeletedFalse(deviceId, pageRequest).map(this::convertToDTO);
+    }
+
+    public Optional<Media> getMediaByIdAndDevice(String id, String deviceId) {
+        return mediaRepository.findByIdAndDeviceId(id, deviceId);
+    }
+
+    @Transactional
+    public void deleteMedia(String id, String deviceId) {
+        mediaRepository.findByIdAndDeviceId(id, deviceId).ifPresent(media -> {
+            media.setDeleted(true);
+            mediaRepository.save(media);
+        });
+    }
+
+    public boolean hashExistsForDevice(String deviceId, String hash) {
+        Optional<Media> existing = mediaRepository.findByHashAndDeviceId(hash, deviceId);
+        return existing.isPresent() && !existing.get().isDeleted();
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // Legacy global queries (kept for backwards compat)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     public List<Media> getAllActiveMedia() {
         return mediaRepository.findByIsDeletedFalse();
@@ -103,21 +137,6 @@ public class MediaService {
     public Page<MediaDTO> getAllActiveMediaPaginated(int page, int size) {
         PageRequest pageRequest = PageRequest.of(page, size, Sort.by("uploadDate").descending());
         return mediaRepository.findByIsDeletedFalse(pageRequest).map(this::convertToDTO);
-    }
-
-    private MediaDTO convertToDTO(Media media) {
-        MediaDTO dto = new MediaDTO();
-        dto.setId(media.getId());
-        dto.setOriginalFileName(media.getOriginalFileName());
-        dto.setFileSize(media.getFileSize());
-        dto.setMediaType(media.getMediaType());
-        dto.setUploadDate(media.getUploadDate());
-        dto.setOriginalCreationDate(media.getOriginalCreationDate());
-        dto.setDeviceId(media.getDeviceId());
-        dto.setWidth(media.getWidth());
-        dto.setHeight(media.getHeight());
-        dto.setDuration(media.getDuration());
-        return dto;
     }
 
     public Optional<Media> getMediaById(String id) {
@@ -138,9 +157,21 @@ public class MediaService {
 
     public boolean hashExists(String hash) {
         Optional<Media> existing = mediaRepository.findByHash(hash);
-        if (existing.isPresent()) {
-            return !existing.get().isDeleted();
-        }
-        return false;
+        return existing.isPresent() && !existing.get().isDeleted();
+    }
+
+    private MediaDTO convertToDTO(Media media) {
+        MediaDTO dto = new MediaDTO();
+        dto.setId(media.getId());
+        dto.setOriginalFileName(media.getOriginalFileName());
+        dto.setFileSize(media.getFileSize());
+        dto.setMediaType(media.getMediaType());
+        dto.setUploadDate(media.getUploadDate());
+        dto.setOriginalCreationDate(media.getOriginalCreationDate());
+        dto.setDeviceId(media.getDeviceId());
+        dto.setWidth(media.getWidth());
+        dto.setHeight(media.getHeight());
+        dto.setDuration(media.getDuration());
+        return dto;
     }
 }

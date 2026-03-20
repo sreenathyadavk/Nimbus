@@ -1,27 +1,28 @@
 package com.localcloud.photos.service;
 
-import com.localcloud.photos.dto.LoginRequest;
+import com.localcloud.photos.dto.DeviceRegistrationRequest;
 import com.localcloud.photos.dto.LoginResponse;
 import com.localcloud.photos.dto.RefreshRequest;
+import com.localcloud.photos.model.AllowedDevice;
 import com.localcloud.photos.model.RefreshToken;
-import com.localcloud.photos.model.User;
+import com.localcloud.photos.repository.AllowedDeviceRepository;
 import com.localcloud.photos.repository.RefreshTokenRepository;
-import com.localcloud.photos.repository.UserRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.security.authentication.BadCredentialsException;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.util.Date;
-import java.util.Optional;
 
 @Service
 public class AuthService {
 
-    private final UserRepository userRepository;
+    private static final Logger log = LoggerFactory.getLogger(AuthService.class);
+
+    private final AllowedDeviceRepository allowedDeviceRepository;
     private final RefreshTokenRepository refreshTokenRepository;
     private final JwtService jwtService;
-    private final PasswordEncoder passwordEncoder;
 
     @Value("${app.jwt.access-expiry-ms:900000}")
     private long accessTokenExpiration;
@@ -29,24 +30,34 @@ public class AuthService {
     @Value("${app.jwt.refresh-expiry-ms:2592000000}")
     private long refreshTokenExpiration;
 
-    public AuthService(UserRepository userRepository, RefreshTokenRepository refreshTokenRepository,
-                       JwtService jwtService, PasswordEncoder passwordEncoder) {
-        this.userRepository = userRepository;
+    public AuthService(AllowedDeviceRepository allowedDeviceRepository,
+                       RefreshTokenRepository refreshTokenRepository,
+                       JwtService jwtService) {
+        this.allowedDeviceRepository = allowedDeviceRepository;
         this.refreshTokenRepository = refreshTokenRepository;
         this.jwtService = jwtService;
-        this.passwordEncoder = passwordEncoder;
     }
 
-    public LoginResponse login(LoginRequest request, String deviceId) {
-        User user = userRepository.findByUsername(request.getUsername())
-                .orElseThrow(() -> new BadCredentialsException("Invalid username or password"));
+    public LoginResponse registerDevice(DeviceRegistrationRequest request) {
+        // Auto-register: find existing or create new
+        AllowedDevice device = allowedDeviceRepository.findByDeviceId(request.getDeviceId())
+                .orElse(null);
 
-        if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
-            throw new BadCredentialsException("Invalid username or password");
+        if (device == null) {
+            // First time this device is seen — auto-register
+            device = new AllowedDevice(request.getDeviceId(), request.getDeviceName());
+            allowedDeviceRepository.save(device);
+            log.info("New device auto-registered: {} ({})", request.getDeviceId(), request.getDeviceName());
+        } else {
+            // Existing device — update info
+            device.setDeviceName(request.getDeviceName());
+            device.setLastSeenAt(Instant.now());
+            allowedDeviceRepository.save(device);
+            log.info("Existing device re-authenticated: {} ({})", request.getDeviceId(), request.getDeviceName());
         }
 
-        String accessToken = jwtService.generateAccessToken(user.getId());
-        String refreshToken = createRefreshToken(user.getId(), deviceId);
+        String accessToken = jwtService.generateAccessToken(request.getDeviceId());
+        String refreshToken = createRefreshToken(request.getDeviceId());
 
         return new LoginResponse(accessToken, refreshToken, accessTokenExpiration / 1000);
     }
@@ -56,7 +67,6 @@ public class AuthService {
                 .orElseThrow(() -> new RuntimeException("Invalid refresh token"));
 
         if (oldToken.isRevoked()) {
-            // Reuse detection: compromise! Revoke all tokens for this user
             refreshTokenRepository.deleteAllByUserId(oldToken.getUserId());
             throw new RuntimeException("Refresh token has been compromised and revoked");
         }
@@ -70,9 +80,9 @@ public class AuthService {
         oldToken.setRevoked(true);
         refreshTokenRepository.save(oldToken);
 
-        // Issue new pair
+        // Issue new pair — userId field stores deviceId
         String accessToken = jwtService.generateAccessToken(oldToken.getUserId());
-        String newRefreshToken = createRefreshToken(oldToken.getUserId(), oldToken.getDeviceId());
+        String newRefreshToken = createRefreshToken(oldToken.getUserId());
 
         return new LoginResponse(accessToken, newRefreshToken, accessTokenExpiration / 1000);
     }
@@ -84,11 +94,11 @@ public class AuthService {
         });
     }
 
-    private String createRefreshToken(String userId, String deviceId) {
+    private String createRefreshToken(String deviceId) {
         String token = jwtService.generateRefreshToken();
         RefreshToken refreshToken = new RefreshToken();
         refreshToken.setToken(token);
-        refreshToken.setUserId(userId);
+        refreshToken.setUserId(deviceId);
         refreshToken.setDeviceId(deviceId);
         refreshToken.setCreatedAt(new Date());
         refreshToken.setExpiresAt(new Date(System.currentTimeMillis() + refreshTokenExpiration));

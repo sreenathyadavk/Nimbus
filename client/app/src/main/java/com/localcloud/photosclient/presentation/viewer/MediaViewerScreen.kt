@@ -1,69 +1,51 @@
 package com.localcloud.photosclient.presentation.viewer
 
 import android.app.Activity
+import android.content.Intent
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.CloudUpload
-import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.localcloud.photosclient.domain.model.MediaItem
+import com.localcloud.photosclient.domain.model.MediaType
+import com.localcloud.photosclient.presentation.viewer.MediaViewerEvent
+import com.localcloud.photosclient.presentation.viewer.MediaViewerState
+import com.localcloud.photosclient.presentation.viewer.MediaViewerUiEvent
+import com.localcloud.photosclient.presentation.viewer.MediaViewerViewModel
 import kotlinx.coroutines.flow.distinctUntilChanged
-import android.content.Intent
-import android.widget.Toast
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.calculateEndPadding
-import androidx.compose.foundation.layout.calculateStartPadding
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.platform.LocalLayoutDirection
 import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import java.io.File
-import androidx.core.content.FileProvider
+import java.util.*
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -72,19 +54,17 @@ fun MediaViewerScreen(
     onNavigateBack: () -> Unit
 ) {
     val state by viewModel.state.collectAsState()
-
     val context = LocalContext.current
     val view = LocalView.current
     val window = (context as? Activity)?.window
     
-    // Manage system bars visibility based on state
     LaunchedEffect(viewModel.uiEvent) {
         viewModel.uiEvent.collect { event ->
             when (event) {
                 is MediaViewerUiEvent.ShareMedia -> {
                     try {
                         val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                            type = if (event.media.type == com.localcloud.photosclient.domain.model.MediaType.IMAGE) "image/*" else "video/*"
+                            type = if (event.media.type == MediaType.IMAGE) "image/*" else "video/*"
                             putExtra(Intent.EXTRA_STREAM, event.media.uri)
                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         }
@@ -103,7 +83,6 @@ fun MediaViewerScreen(
         }
     }
     
-    // Ensure system bars are restored when leaving the screen
     DisposableEffect(Unit) {
         onDispose {
             if (window != null) {
@@ -113,10 +92,39 @@ fun MediaViewerScreen(
         }
     }
 
+    var swipeOffset by remember { mutableStateOf(0f) }
+    var isPagingEnabled by remember { mutableStateOf(true) }
+
+    val swipeProgress = (swipeOffset / 600f).coerceIn(0f, 1f)
+    val scale = 1f - (swipeProgress * 0.2f)
+    val alpha = 1f - (swipeProgress * 0.5f)
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .background(Color.Black.copy(alpha = alpha))
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+                translationY = swipeOffset
+            }
+            .pointerInput(isPagingEnabled) {
+                if (isPagingEnabled) {
+                    detectVerticalDragGestures(
+                        onVerticalDrag = { _, dragAmount ->
+                            swipeOffset = (swipeOffset + dragAmount).coerceAtLeast(0f)
+                        },
+                        onDragEnd = {
+                            if (swipeOffset > 300f) {
+                                onNavigateBack()
+                            } else {
+                                swipeOffset = 0f
+                            }
+                        },
+                        onDragCancel = { swipeOffset = 0f }
+                    )
+                }
+            }
     ) {
         if (state.isLoading) {
             CircularProgressIndicator(
@@ -142,11 +150,23 @@ fun MediaViewerScreen(
         } else {
             MediaPager(
                 state = state,
-                viewModel = viewModel
+                viewModel = viewModel,
+                onZoomChanged = { isZoomed -> isPagingEnabled = !isZoomed },
+                onTap = { 
+                    viewModel.onEvent(MediaViewerEvent.ToggleUiVisibility)
+                    if (window != null) {
+                        val insetsController = WindowCompat.getInsetsController(window, view)
+                        if (state.isUiVisible) {
+                            insetsController.hide(WindowInsetsCompat.Type.systemBars())
+                            insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                        } else {
+                            insetsController.show(WindowInsetsCompat.Type.systemBars())
+                        }
+                    }
+                }
             )
         }
 
-        // Overlay UI
         if (state.mediaItems.isNotEmpty() && !state.isLoading) {
             val safeIndex = state.currentIndex.coerceIn(0, (state.mediaItems.size - 1).coerceAtLeast(0))
             val currentItem = state.mediaItems.getOrNull(safeIndex)
@@ -187,7 +207,54 @@ fun MediaViewerScreen(
                     item = currentItem,
                     onDismiss = { viewModel.onEvent(MediaViewerEvent.ToggleInfoSheetVisibility) }
                 )
+            } else if (currentItem != null && !state.isUiVisible) {
+                BottomInfoPill(
+                    media = currentItem,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 24.dp)
+                )
             }
+        }
+    }
+}
+
+@Composable
+fun BottomInfoPill(media: MediaItem, modifier: Modifier = Modifier) {
+    val dateFormatter = remember { SimpleDateFormat("MMM d, yyyy • HH:mm", Locale.getDefault()) }
+    val dateStr = dateFormatter.format(Date(media.dateModified))
+    val sizeStr = android.text.format.Formatter.formatShortFileSize(LocalContext.current, media.size)
+    val dimenStr = if (media.width > 0) "${media.width}x${media.height}" else ""
+
+    Surface(
+        color = Color.Black.copy(alpha = 0.6f),
+        shape = CircleShape,
+        modifier = modifier
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = dateStr,
+                color = Color.White.copy(alpha = 0.9f),
+                fontSize = 12.sp
+            )
+            if (dimenStr.isNotEmpty()) {
+                Box(Modifier.size(3.dp).background(Color.White.copy(alpha = 0.4f), CircleShape))
+                Text(
+                    text = dimenStr,
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = 11.sp
+                )
+            }
+            Box(Modifier.size(3.dp).background(Color.White.copy(alpha = 0.4f), CircleShape))
+            Text(
+                text = sizeStr,
+                color = Color.White.copy(alpha = 0.7f),
+                fontSize = 11.sp
+            )
         }
     }
 }
@@ -265,7 +332,7 @@ private fun BottomOverlay(
             
             if (isCloudOnly) {
                 ActionButton(
-                    icon = androidx.compose.material.icons.Icons.Default.CloudDownload, 
+                    icon = Icons.Default.CloudDownload, 
                     label = "Restore", 
                     onClick = onRestore
                 )
@@ -304,28 +371,31 @@ private fun ActionButton(
 @Composable
 private fun MediaPager(
     state: MediaViewerState,
-    viewModel: MediaViewerViewModel
+    viewModel: MediaViewerViewModel,
+    onZoomChanged: (Boolean) -> Unit,
+    onTap: () -> Unit
 ) {
-    // Guards against invalid startIndex
+    var isZoomed by remember { mutableStateOf(false) }
+    
     val initialPage = state.currentIndex.coerceIn(0, (state.mediaItems.size - 1).coerceAtLeast(0))
     val pagerState = rememberPagerState(
         initialPage = initialPage,
         pageCount = { state.mediaItems.size }
     )
 
-    // Sync pager state changes back to ViewModel
     LaunchedEffect(pagerState) {
         snapshotFlow { pagerState.currentPage }
             .distinctUntilChanged()
             .collect { page ->
                 if (page != state.currentIndex && page in state.mediaItems.indices) {
                     viewModel.onEvent(MediaViewerEvent.OnPageChanged(page))
+                    isZoomed = false
+                    onZoomChanged(false)
                 }
             }
     }
 
     LaunchedEffect(state.currentIndex) {
-        // Guard checking inside LaunchedEffect
         val boundedIndex = state.currentIndex.coerceIn(0, (state.mediaItems.size - 1).coerceAtLeast(0))
         if (boundedIndex != pagerState.currentPage && !pagerState.isScrollInProgress) {
             pagerState.scrollToPage(boundedIndex)
@@ -335,9 +405,9 @@ private fun MediaPager(
     HorizontalPager(
         state = pagerState,
         modifier = Modifier.fillMaxSize(),
-        beyondBoundsPageCount = 1
+        beyondBoundsPageCount = 1,
+        userScrollEnabled = !isZoomed
     ) { page ->
-        // Defensive bounds checking for pager
         if (page !in state.mediaItems.indices) return@HorizontalPager
         
         val mediaItem = state.mediaItems[page]
@@ -352,7 +422,11 @@ private fun MediaPager(
                     mediaItem = mediaItem,
                     cachedUri = cachedUri,
                     isCurrentPage = isCurrentPage,
-                    onTap = { viewModel.onEvent(MediaViewerEvent.ToggleUiVisibility) }
+                    onTap = onTap,
+                    onZoomChanged = {
+                        isZoomed = it
+                        onZoomChanged(it)
+                    }
                 )
             }
             com.localcloud.photosclient.domain.model.MediaType.VIDEO -> {
@@ -360,7 +434,7 @@ private fun MediaPager(
                     mediaItem = mediaItem,
                     cachedUri = cachedUri,
                     isCurrentPage = isCurrentPage,
-                    onTap = { viewModel.onEvent(MediaViewerEvent.ToggleUiVisibility) }
+                    onTap = onTap
                 )
             }
         }

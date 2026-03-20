@@ -32,6 +32,12 @@ data class LocalMedia(
     val dateAdded: Long = 0L,
     val mediaType: String,
     val duration: Long? = null,
+    val width: Int = 0,
+    val height: Int = 0,
+    val bucketName: String = "",
+    val isFavorite: Boolean = false,
+    val isDeleted: Boolean = false,
+    val deletedAt: Long? = null,
     val remoteId: String? = null, // Backend ID for deletion/sync
     val syncState: SyncState = SyncState.NOT_SYNCED,
     val localAvailability: LocalAvailability = LocalAvailability.LOCAL_AVAILABLE

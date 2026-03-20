@@ -59,27 +59,38 @@ class MainViewModel @Inject constructor(
             initialValue = emptyList()
         )
 
-    val albumFlow: StateFlow<List<Album>> = mediaFlow.map { mediaList ->
-        mediaList.groupBy { File(it.path).parentFile?.absolutePath ?: "Unknown" }
-            .map { (path, list) ->
-                Album(
-                    name = File(path).name,
-                    folderPath = path,
-                    coverPath = list.firstOrNull()?.path ?: "",
-                    count = list.size
-                )
-            }
-            .sortedByDescending { it.count }
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = emptyList()
-    )
+    val favoritesFlow: StateFlow<List<LocalMedia>> = mediaDao.getFavoritesFlow()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    val trashFlow: StateFlow<List<LocalMedia>> = mediaDao.getTrashFlow()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    val albumsFlow: StateFlow<List<com.localcloud.photosclient.data.AlbumStats>> = mediaDao.getAlbumsFlow()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
 
     data class TimelineGroup(val title: String, val items: List<LocalMedia>)
     
+    private val _gridColumns = MutableStateFlow(3)
+    val gridColumns: StateFlow<Int> = _gridColumns.asStateFlow()
+
+    fun updateGridColumns(delta: Int) {
+        _gridColumns.update { (it + delta).coerceIn(2, 4) }
+    }
+
     val photosFlow: StateFlow<List<TimelineGroup>> = mediaFlow.map { list ->
-        val sorted = list.sortedByDescending { it.dateAdded }
+        val sorted = list.filter { !it.isDeleted }.sortedByDescending { it.dateAdded }
         val groups = mutableListOf<TimelineGroup>()
         val monthFormat = SimpleDateFormat("MMMM yyyy", Locale.getDefault())
         val monthlyGroups = mutableMapOf<String, MutableList<LocalMedia>>()
@@ -103,7 +114,7 @@ class MainViewModel @Inject constructor(
     )
 
     val timelineFlow: StateFlow<List<TimelineGroup>> = mediaFlow.map { list ->
-        val sorted = list.sortedByDescending { it.dateAdded }
+        val sorted = list.filter { !it.isDeleted }.sortedByDescending { it.dateAdded }
         val groups = mutableListOf<TimelineGroup>()
         
         val now = System.currentTimeMillis()
@@ -324,9 +335,9 @@ class MainViewModel @Inject constructor(
                 type = if (local.mediaType.startsWith("video")) MediaType.VIDEO else MediaType.IMAGE,
                 displayName = File(local.path).name,
                 size = File(local.path).length(),
-                dateModified = local.dateAdded, // Fallback since phase 1 used whatever DB had
-                width = 0, // Fallback for memory scaler debug logs
-                height = 0, // Fallback for memory scaler debug logs
+                dateModified = local.dateAdded,
+                width = local.width,
+                height = local.height,
                 duration = local.duration,
                 remoteId = local.remoteId,
                 localAvailability = local.localAvailability
@@ -337,13 +348,46 @@ class MainViewModel @Inject constructor(
 
     fun retryFailedUpload(mediaId: Long) {
         viewModelScope.launch(Dispatchers.IO) {
-            // Reset status to PENDING and progress to 0
             mediaDao.updateStatus(mediaId, "PENDING", 0, System.currentTimeMillis())
             mediaDao.updateProgress(mediaId, 0)
             
             val wifiOnly = settingsDataStore.syncWifiOnly.first()
             val chargingOnly = settingsDataStore.syncOnChargingOnly.first()
             SyncManager.forceSync(getApplication(), requireWifi = wifiOnly, requireCharging = chargingOnly)
+        }
+    }
+
+    fun toggleFavorite(mediaId: Long, isFavorite: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            mediaDao.getMediaById(mediaId)?.let { media ->
+                mediaDao.updateMedia(media.copy(isFavorite = isFavorite))
+            }
+        }
+    }
+
+    fun moveToTrash(mediaId: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            mediaDao.getMediaById(mediaId)?.let { media ->
+                mediaDao.updateMedia(media.copy(isDeleted = true, deletedAt = System.currentTimeMillis()))
+            }
+        }
+    }
+
+    fun restoreFromTrash(mediaId: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            mediaDao.getMediaById(mediaId)?.let { media ->
+                mediaDao.updateMedia(media.copy(isDeleted = false, deletedAt = null))
+            }
+        }
+    }
+
+    fun deletePermanently(mediaId: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            mediaDao.getMediaById(mediaId)?.let { media ->
+                val file = File(media.path)
+                if (file.exists()) file.delete()
+                mediaDao.deleteMediaById(mediaId)
+            }
         }
     }
 }

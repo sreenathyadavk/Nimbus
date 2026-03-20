@@ -22,7 +22,10 @@ class MediaStoreManager(private val context: Context, private val settingsDataSt
             MediaStore.Files.FileColumns.DATA,
             MediaStore.Files.FileColumns.DATE_ADDED,
             MediaStore.Files.FileColumns.MEDIA_TYPE,
-            MediaStore.Files.FileColumns.DURATION
+            MediaStore.Files.FileColumns.DURATION,
+            MediaStore.Files.FileColumns.WIDTH,
+            MediaStore.Files.FileColumns.HEIGHT,
+            MediaStore.Images.Media.BUCKET_DISPLAY_NAME
         )
 
         val selection = (MediaStore.Files.FileColumns.MEDIA_TYPE + "="
@@ -47,6 +50,9 @@ class MediaStoreManager(private val context: Context, private val settingsDataSt
             val dateCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_ADDED)
             val typeCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MEDIA_TYPE)
             val durationCol = cursor.getColumnIndex(MediaStore.Files.FileColumns.DURATION)
+            val widthCol = cursor.getColumnIndex(MediaStore.Files.FileColumns.WIDTH)
+            val heightCol = cursor.getColumnIndex(MediaStore.Files.FileColumns.HEIGHT)
+            val bucketCol = cursor.getColumnIndex(MediaStore.Images.Media.BUCKET_DISPLAY_NAME)
 
             while (cursor.moveToNext()) {
                 val id = cursor.getLong(idCol)
@@ -55,6 +61,9 @@ class MediaStoreManager(private val context: Context, private val settingsDataSt
                 val mediaTypeInt = cursor.getInt(typeCol)
                 val mediaTypeStr = if (mediaTypeInt == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO) "video/mp4" else "image/jpeg"
                 val duration = if (durationCol != -1) cursor.getLong(durationCol) else null
+                val width = if (widthCol != -1) cursor.getInt(widthCol) else 0
+                val height = if (heightCol != -1) cursor.getInt(heightCol) else 0
+                val bucketName = if (bucketCol != -1) cursor.getString(bucketCol) ?: "Unknown" else "Unknown"
 
                 val exists = mediaDao.exists(id)
                 if (!exists) {
@@ -66,7 +75,10 @@ class MediaStoreManager(private val context: Context, private val settingsDataSt
                         uploadStatus = if (autoSync) "PENDING" else "NONE",
                         dateAdded = dateAdded,
                         mediaType = mediaTypeStr,
-                        duration = duration
+                        duration = duration,
+                        width = width,
+                        height = height,
+                        bucketName = bucketName
                     )
                     android.util.Log.d("SYNC_DEBUG", "MediaStoreManager: Inserted with uploadStatus=${localMedia.uploadStatus}")
                     mediaDao.insertMedia(localMedia)

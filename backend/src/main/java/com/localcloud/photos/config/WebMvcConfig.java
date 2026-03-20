@@ -15,8 +15,8 @@ public class WebMvcConfig implements WebMvcConfigurer {
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
-        registry.addInterceptor(deviceAuthInterceptor)
-                .addPathPatterns("/api/**"); // Apply interceptor to API endpoints
+        // Legacy DeviceAuthInterceptor removed. 
+        // Device identity is now managed via JWT subject in JwtAuthFilter.
     }
 
     @Override

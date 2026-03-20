@@ -25,9 +25,6 @@ public class StorageService {
 
         try {
             Files.createDirectories(this.rootLocation);
-            Files.createDirectories(this.rootLocation.resolve("images"));
-            Files.createDirectories(this.rootLocation.resolve("videos"));
-            Files.createDirectories(this.rootLocation.resolve("thumbnails"));
         } catch (IOException e) {
             throw new RuntimeException("Could not initialize storage directory", e);
         }
@@ -49,7 +46,11 @@ public class StorageService {
         }
     }
 
-    public String storeFile(MultipartFile file, String hash, Date creationDate) {
+    /**
+     * Stores a file at: {rootLocation}/{deviceId}/images/{year}/{month}/{hash}.{ext}
+     * Returns the relative path from rootLocation.
+     */
+    public String storeFile(MultipartFile file, String hash, Date creationDate, String deviceId) {
         validateFile(file);
 
         try {
@@ -57,17 +58,17 @@ public class StorageService {
                     .cleanPath(file.getOriginalFilename() != null ? file.getOriginalFilename() : "");
             String extension = getExtension(originalFilename);
             if (extension.isEmpty()) {
-                // Infer from content type
-                extension = getExtensionFromContextType(file.getContentType());
+                extension = getExtensionFromContentType(file.getContentType());
             }
 
             String filename = hash + "." + extension;
-            Path destinationDir = getDirectoryForDate(creationDate,
+            Path destinationDir = getDirectoryForDate(creationDate, deviceId,
                     file.getContentType() != null && file.getContentType().startsWith("video"));
             Path destinationFile = destinationDir.resolve(filename).normalize();
 
-            if (!destinationFile.getParent().startsWith(this.rootLocation.normalize())) {
-                throw new SecurityException("Cannot store file outside current directory.");
+            // Security check: ensure we're still inside rootLocation
+            if (!destinationFile.startsWith(this.rootLocation)) {
+                throw new SecurityException("Cannot store file outside storage directory.");
             }
 
             if (Files.exists(destinationFile)) {
@@ -85,6 +86,13 @@ public class StorageService {
         }
     }
 
+    /**
+     * Legacy overload for backwards compatibility.
+     */
+    public String storeFile(MultipartFile file, String hash, Date creationDate) {
+        return storeFile(file, hash, creationDate, "default");
+    }
+
     public void deleteFile(String relativePath) {
         try {
             Path file = rootLocation.resolve(relativePath).normalize();
@@ -94,16 +102,35 @@ public class StorageService {
         }
     }
 
-    private Path getDirectoryForDate(Date creationDate, boolean isVideo) throws IOException {
+    /**
+     * Returns the directory: {rootLocation}/{deviceId}/images/{year}/{month}/
+     * Creates all parent directories if they don't exist.
+     */
+    private Path getDirectoryForDate(Date creationDate, String deviceId, boolean isVideo) throws IOException {
         LocalDate localDate = creationDate.toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
         String year = String.valueOf(localDate.getYear());
         String month = String.format("%02d", localDate.getMonthValue());
 
-        Path baseDir = rootLocation.resolve(isVideo ? "videos" : "images");
+        // {rootLocation}/{deviceId}/images/{year}/{month}/
+        Path baseDir = rootLocation.resolve(deviceId).resolve(isVideo ? "videos" : "images");
         Path finalDir = baseDir.resolve(year).resolve(month);
 
         Files.createDirectories(finalDir);
         return finalDir;
+    }
+
+    /**
+     * Returns the thumbnail directory for a device: {rootLocation}/{deviceId}/thumbnails/
+     * Creates the directory if it doesn't exist.
+     */
+    public Path getThumbnailDir(String deviceId) {
+        Path thumbDir = rootLocation.resolve(deviceId).resolve("thumbnails");
+        try {
+            Files.createDirectories(thumbDir);
+        } catch (IOException e) {
+            throw new RuntimeException("Could not create thumbnail directory for device: " + deviceId, e);
+        }
+        return thumbDir;
     }
 
     public String getExtension(String filename) {
@@ -111,7 +138,7 @@ public class StorageService {
         return (dotIndex == -1) ? "" : filename.substring(dotIndex + 1);
     }
 
-    private String getExtensionFromContextType(String contentType) {
+    private String getExtensionFromContentType(String contentType) {
         if (contentType == null)
             return "bin";
         return switch (contentType) {

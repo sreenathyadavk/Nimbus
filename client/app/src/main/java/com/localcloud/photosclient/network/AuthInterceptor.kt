@@ -7,6 +7,9 @@ import okhttp3.Interceptor
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.Route
+import com.localcloud.photosclient.network.SyncRequest
+import com.localcloud.photosclient.network.RefreshRequest
+import com.localcloud.photosclient.network.ApiService
 
 class AuthInterceptor(private val tokenDataStore: TokenDataStore) : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
@@ -24,7 +27,7 @@ class AuthInterceptor(private val tokenDataStore: TokenDataStore) : Interceptor 
 
 class TokenAuthenticator(
     private val tokenDataStore: TokenDataStore,
-    private val apiService: Lazy<ApiService>
+    private val apiService: dagger.Lazy<ApiService>
 ) : Authenticator {
     override fun authenticate(route: Route?, response: Response): Request? {
         val refreshToken = tokenDataStore.getRefreshToken() ?: return null
@@ -41,11 +44,9 @@ class TokenAuthenticator(
             }
 
             // Otherwise, perform the refresh
-            val res = runBlocking {
+            val res: retrofit2.Response<com.localcloud.photosclient.network.LoginResponse>? = runBlocking {
                 try {
-                    apiService.value.getDelta(SyncRequest(null)) // Dummy call just to test connectivity, wait, no.
-                    // The user wants me to call POST /auth/refresh
-                    apiService.value.refresh(RefreshRequest(refreshToken))
+                    apiService.get().refresh(RefreshRequest(refreshToken))
                 } catch (e: Exception) {
                     null
                 }

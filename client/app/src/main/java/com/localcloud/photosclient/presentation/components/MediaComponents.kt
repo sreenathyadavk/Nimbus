@@ -13,6 +13,8 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -32,12 +34,14 @@ import com.localcloud.photosclient.data.LocalMedia
 import com.localcloud.photosclient.data.LocalAvailability
 import java.io.File
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun DenseMediaItem(
     media: LocalMedia, 
     isSelected: Boolean,
     onClick: () -> Unit,
-    onLongPress: () -> Unit
+    onLongPress: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     var isPressed by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
@@ -46,9 +50,16 @@ fun DenseMediaItem(
         label = "scale"
     )
 
+    val aspectRatio = if (media.width > 0 && media.height > 0) {
+        media.width.toFloat() / media.height
+    } else {
+        1f
+    }
+
     Box(
-        modifier = Modifier
-            .aspectRatio(1f)
+        modifier = modifier
+            .fillMaxWidth()
+            .aspectRatio(aspectRatio)
             .scale(scale)
             .background(Color.DarkGray)
             .pointerInput(Unit) {
@@ -98,13 +109,15 @@ fun DenseMediaItem(
         
         if (isCloudOnly) {
             Icon(
-                imageVector = Icons.Default.CloudDone,
+                imageVector = Icons.Default.Cloud,
                 contentDescription = "Cloud Only",
-                tint = Color.White.copy(alpha = 0.8f),
+                tint = Color.White.copy(alpha = 0.9f),
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(4.dp)
+                    .padding(6.dp)
                     .size(16.dp)
+                    .background(Color.Black.copy(alpha = 0.2f), CircleShape)
+                    .padding(2.dp)
             )
         }
         
@@ -126,6 +139,15 @@ fun DenseMediaItem(
                     modifier = Modifier.padding(end = 4.dp)
                 )
             }
+            Icon(
+                imageVector = androidx.compose.material.icons.Icons.Default.PlayArrow,
+                contentDescription = null,
+                tint = Color.White.copy(alpha = 0.8f),
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .size(24.dp)
+                    .background(Color.Black.copy(alpha = 0.3f), CircleShape)
+            )
         }
         
         // Sync Status Indicator Overlay

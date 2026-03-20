@@ -31,9 +31,9 @@ data class SyncResponse(
     @SerializedName("delta") val delta: List<MediaRemoteDTO>
 )
 
-data class LoginRequest(
-    @SerializedName("username") val username: String,
-    @SerializedName("password") val password: String
+data class DeviceRegistrationRequest(
+    @SerializedName("deviceId") val deviceId: String,
+    @SerializedName("deviceName") val deviceName: String
 )
 
 data class LoginResponse(
@@ -45,4 +45,3 @@ data class LoginResponse(
 data class RefreshRequest(
     @SerializedName("refreshToken") val refreshToken: String
 )
-

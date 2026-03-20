@@ -15,7 +15,7 @@ docker-compose up --build
 ```
 This will start:
 - **MongoDB**: For metadata storage.
-- **KPhotos Backend**: The Spring Boot application.
+- **Nimbus Backend**: The Spring Boot application.
 
 ## How to run Android
 1. Open the `/client` directory in Android Studio.

@@ -29,7 +29,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 fun SettingsScreen(
     viewModel: SettingsViewModel,
     onNavigateBack: () -> Unit,
-    onNavigateToFreeUpSpace: () -> Unit
+    onNavigateToFreeUpSpace: () -> Unit,
+    onNavigateToFavorites: () -> Unit,
+    onNavigateToTrash: () -> Unit
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -74,6 +76,25 @@ fun SettingsScreen(
                     .padding(paddingValues),
                 contentPadding = PaddingValues(bottom = 32.dp)
             ) {
+                item {
+                    SettingsSection(title = "Library") {
+                        PremiumActionPreference(
+                            title = "Favorites",
+                            subtitle = "View your starred photos and videos",
+                            icon = Icons.Default.Favorite,
+                            actionLabel = "View",
+                            onAction = onNavigateToFavorites
+                        )
+                        PremiumActionPreference(
+                            title = "Trash",
+                            subtitle = "Recently deleted items",
+                            icon = Icons.Default.Delete,
+                            actionLabel = "View",
+                            onAction = onNavigateToTrash
+                        )
+                    }
+                }
+
                 item {
                     SettingsSection(title = stringResource(id = R.string.settings_section_sync)) {
                         PremiumSwitchPreference(

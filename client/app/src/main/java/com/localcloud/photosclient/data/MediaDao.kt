@@ -7,11 +7,30 @@ import androidx.room.Query
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
+data class AlbumStats(
+    val bucketName: String,
+    val lastDate: Long,
+    val count: Int,
+    val lastMediaId: Long
+)
+
 @Dao
 interface MediaDao {
 
-    @Query("SELECT * FROM local_media ORDER BY dateAdded DESC")
+    @Query("SELECT * FROM local_media WHERE isDeleted = 0 ORDER BY dateAdded DESC")
     fun getAllMediaFlow(): Flow<List<LocalMedia>>
+
+    @Query("SELECT * FROM local_media WHERE isFavorite = 1 AND isDeleted = 0 ORDER BY dateAdded DESC")
+    fun getFavoritesFlow(): Flow<List<LocalMedia>>
+
+    @Query("SELECT * FROM local_media WHERE isDeleted = 1 ORDER BY deletedAt DESC")
+    fun getTrashFlow(): Flow<List<LocalMedia>>
+
+    @Query("SELECT * FROM local_media WHERE bucketName = :bucketName AND isDeleted = 0 ORDER BY dateAdded DESC")
+    fun getMediaByBucketFlow(bucketName: String): Flow<List<LocalMedia>>
+
+    @Query("SELECT bucketName, MAX(dateAdded) as lastDate, COUNT(*) as count, (SELECT id FROM local_media lm2 WHERE lm2.bucketName = local_media.bucketName AND lm2.isDeleted = 0 ORDER BY dateAdded DESC LIMIT 1) as lastMediaId FROM local_media WHERE isDeleted = 0 GROUP BY bucketName ORDER BY lastDate DESC")
+    fun getAlbumsFlow(): Flow<List<AlbumStats>>
 
     @Query("SELECT * FROM local_media WHERE (uploadStatus = 'PENDING' OR uploadStatus = 'FAILED') AND retryCount < 5")
     suspend fun getPendingUploads(): List<LocalMedia>
@@ -46,9 +65,8 @@ interface MediaDao {
     @Query("SELECT EXISTS(SELECT * FROM local_media WHERE id = :id)")
     suspend fun exists(id: Long): Boolean
 
-    @Query("SELECT * FROM local_media WHERE syncState = :syncState AND localAvailability = :availability")
+    @Query("SELECT * FROM local_media WHERE uploadStatus = 'SUCCESS' AND localAvailability = :availability AND isDeleted = 0")
     suspend fun getRemovableMedia(
-        syncState: SyncState = SyncState.SYNCED,
         availability: LocalAvailability = LocalAvailability.LOCAL_AVAILABLE
     ): List<LocalMedia>
 

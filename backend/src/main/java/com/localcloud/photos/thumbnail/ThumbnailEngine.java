@@ -8,7 +8,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.concurrent.CompletableFuture;
@@ -25,13 +24,15 @@ public class ThumbnailEngine {
         this.appProperties = appProperties;
     }
 
+    /**
+     * Generates a thumbnail at: {rootLocation}/{deviceId}/thumbnails/{hash}_thumb.jpg
+     */
     @Async("thumbnailExecutor")
-    public CompletableFuture<String> generateThumbnailAsync(String originalRelativePath, String hash) {
+    public CompletableFuture<String> generateThumbnailAsync(String originalRelativePath, String hash, String deviceId) {
         try {
             Path originalFile = storageService.getRootLocation().resolve(originalRelativePath);
-            Path thumbnailDir = storageService.getRootLocation().resolve("thumbnails");
+            Path thumbnailDir = storageService.getThumbnailDir(deviceId);
 
-            // Assume jpeg for thumbnail format
             String thumbnailFilename = hash + "_thumb.jpg";
             Path thumbnailFile = thumbnailDir.resolve(thumbnailFilename).normalize();
 
@@ -44,12 +45,9 @@ public class ThumbnailEngine {
             int size = appProperties.getThumbnail().getSize();
             double compression = appProperties.getThumbnail().getCompression();
 
-            // Right now only images are natively thumbnailed by thumbnailator
-            // Video thumbnails could be done via FFmpeg, but we will skip it for now or
-            // return a generic video thumb
+            // Skip video thumbnails for now
             String ext = storageService.getExtension(originalRelativePath).toLowerCase();
             if (ext.equals("mp4") || ext.equals("mov")) {
-                // Mock video thumbnail logic or skip
                 logger.info("Video thumbnailing skipping for now for: {}", originalRelativePath);
                 return CompletableFuture.completedFuture(null);
             }
@@ -67,5 +65,13 @@ public class ThumbnailEngine {
             logger.error("Failed to generate thumbnail for {}: {}", originalRelativePath, e.getMessage());
             return CompletableFuture.completedFuture(null);
         }
+    }
+
+    /**
+     * Legacy overload for backwards compatibility.
+     */
+    @Async("thumbnailExecutor")
+    public CompletableFuture<String> generateThumbnailAsync(String originalRelativePath, String hash) {
+        return generateThumbnailAsync(originalRelativePath, hash, "default");
     }
 }

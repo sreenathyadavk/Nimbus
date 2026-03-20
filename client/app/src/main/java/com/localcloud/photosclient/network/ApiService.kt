@@ -30,8 +30,8 @@ interface ApiService {
     @POST("api/sync/delta")
     suspend fun getDelta(@Body request: SyncRequest): Response<SyncResponse>
 
-    @POST("auth/login")
-    suspend fun login(@Body request: LoginRequest): Response<LoginResponse>
+    @POST("auth/register-device")
+    suspend fun registerDevice(@Body request: DeviceRegistrationRequest): Response<LoginResponse>
 
     @POST("auth/refresh")
     suspend fun refresh(@Body request: RefreshRequest): Response<LoginResponse>

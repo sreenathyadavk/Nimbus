@@ -137,7 +137,7 @@ class MediaViewerViewModel @Inject constructor(
             }
             MediaViewerEvent.ToggleInfoSheetVisibility -> {
                 val newValue = !_state.value.isInfoSheetVisible
-                _state.update { it.copy(isInfoSheetVisible = newValue) }
+                _state.update { it.copy(isInfoSheetVisible = newValue, isUiVisible = if (newValue) false else it.isUiVisible) }
             }
             MediaViewerEvent.OnBackClick -> {
                 Log.d("MediaViewerViewModel", "Back clicked")

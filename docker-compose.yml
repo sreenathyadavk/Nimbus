@@ -20,7 +20,7 @@ services:
     environment:
       - SPRING_DATA_MONGODB_URI=mongodb://mongodb:27017/photos
     volumes:
-      - /media/sreenath/Dell1/K:/app/storage
+      - /media/sreenath/Dell2/NIMBUS_CLOUD:/app/storage
     depends_on:
       - mongodb
     restart: unless-stopped

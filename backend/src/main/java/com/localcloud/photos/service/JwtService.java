@@ -21,8 +21,18 @@ public class JwtService {
     @Value("${app.jwt.access-expiry-ms:900000}")
     private long accessTokenExpiration;
 
-    public String extractUserId(String token) {
+    /**
+     * Extracts the subject (deviceId) from a JWT token.
+     */
+    public String extractDeviceId(String token) {
         return extractClaim(token, Claims::getSubject);
+    }
+
+    /**
+     * @deprecated Use extractDeviceId instead. Kept for backwards compatibility with JwtAuthFilter.
+     */
+    public String extractUserId(String token) {
+        return extractDeviceId(token);
     }
 
     public <T> T extractClaim(String token, Function<Claims, T> claimsResolver) {
@@ -30,9 +40,12 @@ public class JwtService {
         return claimsResolver.apply(claims);
     }
 
-    public String generateAccessToken(String userId) {
+    /**
+     * Generates an access token with deviceId as the subject.
+     */
+    public String generateAccessToken(String deviceId) {
         return Jwts.builder()
-                .subject(userId)
+                .subject(deviceId)
                 .issuedAt(new Date(System.currentTimeMillis()))
                 .expiration(new Date(System.currentTimeMillis() + accessTokenExpiration))
                 .signWith(getSignInKey())

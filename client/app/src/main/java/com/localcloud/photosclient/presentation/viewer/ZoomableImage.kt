@@ -11,12 +11,7 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -26,6 +21,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
 import coil.compose.AsyncImagePainter
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
@@ -38,17 +34,30 @@ fun ZoomableImage(
     cachedUri: android.net.Uri?,
     isCurrentPage: Boolean,
     onTap: () -> Unit,
+    onZoomChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var scale by remember { mutableStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
+    val context = LocalContext.current
 
-    // Reset zoom when swiped away (page is no longer current)
+    LaunchedEffect(scale) {
+        onZoomChanged(scale > 1f)
+    }
+
     LaunchedEffect(isCurrentPage) {
         if (!isCurrentPage) {
             scale = 1f
             offset = Offset.Zero
         }
+    }
+
+    val thumbnailRequest = remember(mediaItem.id, cachedUri) {
+        ImageRequest.Builder(context)
+            .data(cachedUri ?: mediaItem.uri)
+            .size(300, 300)
+            .crossfade(true)
+            .build()
     }
 
     Box(
@@ -85,8 +94,6 @@ fun ZoomableImage(
                 }
             }
             .pointerInput(Unit) {
-                // When at default scale (1f) or zoomed out, we still want to detect pinch to zoom
-                // but WITHOUT consuming the pan (drag) events, so HorizontalPager can swipe.
                 detectTransformGestures { _, _, zoom, _ ->
                     if (zoom > 1f || scale > 1f) {
                         scale = (scale * zoom).coerceIn(1f, 5f)
@@ -95,13 +102,13 @@ fun ZoomableImage(
             }
     ) {
         SubcomposeAsyncImage(
-            model = ImageRequest.Builder(LocalContext.current)
+            model = ImageRequest.Builder(context)
                 .data(cachedUri ?: mediaItem.uri)
                 .crossfade(true)
-                .allowHardware(true) // Load efficiently using MediaStore URI without forcing max bounds
+                .allowHardware(true)
                 .build(),
             contentDescription = mediaItem.displayName,
-            contentScale = ContentScale.Fit, // Automatically prevents OOM by fitting into view initially, while loading max res
+            contentScale = ContentScale.Fit,
             modifier = Modifier
                 .align(Alignment.Center)
                 .graphicsLayer(
@@ -114,9 +121,11 @@ fun ZoomableImage(
             val state = painter.state
             when (state) {
                 is AsyncImagePainter.State.Loading -> {
-                    CircularProgressIndicator(
-                        color = Color.White,
-                        modifier = Modifier.align(Alignment.Center)
+                    AsyncImage(
+                        model = thumbnailRequest,
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize()
                     )
                 }
                 is AsyncImagePainter.State.Error -> {

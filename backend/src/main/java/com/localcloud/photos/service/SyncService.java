@@ -18,9 +18,9 @@ public class SyncService {
         this.mediaRepository = mediaRepository;
     }
 
-    public List<MediaDTO> getDelta(Date lastSyncedAt) {
-        Date sincetime = lastSyncedAt != null ? lastSyncedAt : new Date(0);
-        List<Media> deltaMedia = mediaRepository.findByUploadDateAfter(sincetime);
+    public List<MediaDTO> getDelta(String deviceId, Date lastSyncedAt) {
+        Date sinceTime = lastSyncedAt != null ? lastSyncedAt : new Date(0);
+        List<Media> deltaMedia = mediaRepository.findByDeviceIdAndUploadDateAfter(deviceId, sinceTime);
         return deltaMedia.stream()
                 .map(this::convertToDTO)
                 .collect(Collectors.toList());
