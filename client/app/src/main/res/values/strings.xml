@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_title">Settings</string>
+
+    <string name="settings_section_sync">Sync Settings</string>
+    <string name="settings_auto_sync">Auto Sync</string>
+    <string name="settings_wifi_only">WiFi Only</string>
+    <string name="settings_charging_only">Charging Only</string>
+    <string name="settings_background_sync">Background Sync</string>
+
+    <string name="settings_section_device">Device Info</string>
+    <string name="settings_device_id">Device ID</string>
+    <string name="settings_copy">Copy</string>
+    <string name="settings_device_id_copied">Device ID Copied</string>
+
+    <string name="settings_section_app">App Info</string>
+    <string name="settings_app_version">App Version</string>
+    <string name="settings_build_number">Build Number</string>
+
+    <string name="settings_section_debug">Debug Section</string>
+    <string name="settings_media_count">Media Count</string>
+    <string name="settings_db_size">Database Size</string>
+    <string name="settings_toggle_debug_logs">Toggle Debug Logs</string>
+    <string name="settings_placeholder_media_count">Placeholder: 0</string>
+    <string name="settings_placeholder_db_size">Placeholder: 0 MB</string>
+</resources>

@@ -1,0 +1,29 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: Nimbus
+  data:
+    mongodb:
+      uri: mongodb://localhost:27017/photos
+      auto-index-creation: true
+  servlet:
+    multipart:
+      max-file-size: 1000MB
+      max-request-size: 1000MB
+
+app:
+  jwt:
+    secret: "3cfa76ef14937c1c0ea519f8fc057a80fcd04a7420f8e8bcd0a7567c272e007b"
+    expiration-ms: 86400000 # 24 hours
+
+nimbus:
+  storage:
+    root-directory: /app/storage
+  upload:
+    allowed-types: image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime
+    max-size-bytes: 1048576000 # 1000MB
+  thumbnail:
+    size: 300
+    compression: 0.8

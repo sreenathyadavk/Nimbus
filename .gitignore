@@ -1,0 +1,26 @@
+# Android
+*.iml
+.gradle/
+local.properties
+.idea/
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+
+# Spring Boot
+target/
+*.jar
+*.war
+*.class
+.env
+application-local.yml
+*.log
+logs/
+
+# Docker / System
+.DS_Store
+Thumbs.db
+docker-compose.override.yml
