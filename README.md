@@ -1,13 +1,12 @@
-# KPhotos
+# Nimbus
 
-A production-grade, self-hosted, local photo backup and gallery system. This application allows you to automatically sync photos and videos from your Android device to a private server, maintaining a metadata-driven gallery similar to Google Photos but with full privacy and control.
+Nimbus is a production-grade, self-hosted, local photo backup and gallery system.
 
-## Stack
-- **Android**: Kotlin + Jetpack Compose
-- **Backend**: Spring Boot 3 + Java 17 (Targeting 21)
-- **Database**: MongoDB
-- **Storage**: Local Filesystem / MinIO (planned)
-- **Infrastructure**: Docker & Docker Compose
+## Tech Stack
+- **Frontend (Android):** Kotlin + Jetpack Compose
+- **Backend:** Spring Boot 3 + Java 17
+- **Database:** MongoDB
+- **Infrastructure:** Docker
 
 ## How to run backend
 Ensure you have Docker and Docker Compose installed.

@@ -95,10 +95,16 @@ import com.localcloud.photosclient.presentation.home.HomeSelectionState
 import androidx.compose.foundation.BorderStroke
 import com.localcloud.photosclient.presentation.components.DenseMediaItem
 
+import com.localcloud.photosclient.data.repository.AuthRepository
+import com.localcloud.photosclient.presentation.auth.LoginScreen
+
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
     private lateinit var mediaStoreObserver: MediaStoreObserver
+
+    @javax.inject.Inject
+    lateinit var authRepository: AuthRepository
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -122,8 +128,18 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     val navController = rememberNavController()
+                    val startDestination = if (authRepository.isLoggedIn()) "home" else "login"
 
-                    NavHost(navController = navController, startDestination = "home") {
+                    NavHost(navController = navController, startDestination = startDestination) {
+                        composable("login") {
+                            LoginScreen(
+                                onLoginSuccess = { 
+                                    navController.navigate("home") {
+                                        popUpTo("login") { inclusive = true }
+                                    }
+                                }
+                            )
+                        }
                         composable("home") {
                             HomeScreen(
                                 viewModel = viewModel,

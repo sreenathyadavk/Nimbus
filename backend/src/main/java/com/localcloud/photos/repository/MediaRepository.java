@@ -18,4 +18,6 @@ public interface MediaRepository extends MongoRepository<Media, String> {
     List<Media> findByIsDeletedFalse();
 
     Page<Media> findByIsDeletedFalse(Pageable pageable);
+
+    List<Media> findByUploadDateAfter(java.util.Date uploadDate);
 }

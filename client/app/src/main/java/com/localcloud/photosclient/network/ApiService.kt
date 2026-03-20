@@ -26,4 +26,16 @@ interface ApiService {
 
     @retrofit2.http.DELETE("api/media/{id}")
     suspend fun deleteMedia(@Path("id") id: String): Response<Void>
+
+    @POST("api/sync/delta")
+    suspend fun getDelta(@Body request: SyncRequest): Response<SyncResponse>
+
+    @POST("auth/login")
+    suspend fun login(@Body request: LoginRequest): Response<LoginResponse>
+
+    @POST("auth/refresh")
+    suspend fun refresh(@Body request: RefreshRequest): Response<LoginResponse>
+
+    @POST("auth/logout")
+    suspend fun logout(@Body request: RefreshRequest): Response<Void>
 }
