@@ -104,9 +104,10 @@ fun FreeUpSpaceScreen(
                     items(state.removableMedia, key = { it.id }) { item ->
                         DenseMediaItem(
                             media = item,
+                            isSelected = false,
+                            isSelectionMode = false,
                             onClick = {},
-                            onLongPress = {},
-                            isSelected = false
+                            onLongPress = {}
                         )
                     }
                 }

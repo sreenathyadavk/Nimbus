@@ -1,61 +1,47 @@
 package com.localcloud.photosclient.presentation.albums
 
-import android.content.ContentUris
-import android.provider.MediaStore
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
-import com.localcloud.photosclient.data.AlbumStats
-import com.localcloud.photosclient.ui.MainViewModel
+import com.localcloud.photosclient.ui.theme.*
 
 @Composable
 fun AlbumsScreen(
-    viewModel: MainViewModel,
-    onAlbumClick: (String) -> Unit
+    viewModel: AlbumsViewModel = hiltViewModel(),
+    onAlbumClick: (Album) -> Unit = {}
 ) {
-    val albums by viewModel.albumsFlow.collectAsState()
+    val albums by viewModel.albums.collectAsState()
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Text(
-            text = "Albums",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(bottom = 16.dp)
-        )
-
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp),
-            modifier = Modifier.fillMaxSize()
-        ) {
-            items(albums) { album ->
-                AlbumItem(album = album, onClick = { onAlbumClick(album.bucketName) })
-            }
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(2),
+        modifier = Modifier.fillMaxSize().background(PureBlack),
+        contentPadding = PaddingValues(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp)
+    ) {
+        items(albums) { album ->
+            AlbumCard(album = album, onClick = { onAlbumClick(album) })
         }
     }
 }
 
 @Composable
-fun AlbumItem(album: AlbumStats, onClick: () -> Unit) {
-    val coverUri = remember(album.lastMediaId) {
-        ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, album.lastMediaId)
-    }
-
+fun AlbumCard(album: Album, onClick: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -64,29 +50,42 @@ fun AlbumItem(album: AlbumStats, onClick: () -> Unit) {
         Box(
             modifier = Modifier
                 .aspectRatio(1f)
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(8.dp))
+                .background(DarkSurfaceVariant)
         ) {
             AsyncImage(
-                model = coverUri,
+                model = album.coverUri,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
+            )
+            
+            // Bottom Gradient for text readability
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f)),
+                            startY = 300f
+                        )
+                    )
             )
         }
         
         Spacer(modifier = Modifier.height(8.dp))
         
         Text(
-            text = album.bucketName,
-            fontWeight = FontWeight.SemiBold,
+            text = album.name,
+            color = White,
             fontSize = 14.sp,
+            fontWeight = FontWeight.Bold,
             maxLines = 1
         )
         Text(
-            text = "${album.count} items",
-            fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            text = "${album.count}",
+            color = InactiveGrey,
+            fontSize = 12.sp
         )
     }
 }

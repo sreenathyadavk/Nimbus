@@ -1,499 +1,214 @@
 package com.localcloud.photosclient.presentation.viewer
 
 import android.app.Activity
-import android.content.Intent
-import android.widget.Toast
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
-import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.*
+import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLayoutDirection
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import androidx.hilt.navigation.compose.hiltViewModel
-import com.localcloud.photosclient.domain.model.MediaItem
-import com.localcloud.photosclient.domain.model.MediaType
-import com.localcloud.photosclient.presentation.viewer.MediaViewerEvent
-import com.localcloud.photosclient.presentation.viewer.MediaViewerState
-import com.localcloud.photosclient.presentation.viewer.MediaViewerUiEvent
-import com.localcloud.photosclient.presentation.viewer.MediaViewerViewModel
-import kotlinx.coroutines.flow.distinctUntilChanged
-import java.text.SimpleDateFormat
-import java.util.*
+import coil.compose.AsyncImage
+import com.localcloud.photosclient.data.LocalMedia
+import com.localcloud.photosclient.ui.theme.PureBlack
+import kotlinx.coroutines.delay
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MediaViewerScreen(
-    viewModel: MediaViewerViewModel = hiltViewModel(),
+    initialIndex: Int,
+    allMedia: List<LocalMedia>,
     onNavigateBack: () -> Unit
 ) {
-    val state by viewModel.state.collectAsState()
-    val context = LocalContext.current
-    val view = LocalView.current
-    val window = (context as? Activity)?.window
-    
-    LaunchedEffect(viewModel.uiEvent) {
-        viewModel.uiEvent.collect { event ->
-            when (event) {
-                is MediaViewerUiEvent.ShareMedia -> {
-                    try {
-                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                            type = if (event.media.type == MediaType.IMAGE) "image/*" else "video/*"
-                            putExtra(Intent.EXTRA_STREAM, event.media.uri)
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        }
-                        context.startActivity(Intent.createChooser(shareIntent, "Share Media"))
-                    } catch (e: Exception) {
-                        Toast.makeText(context, "Failed to share: ${e.message}", Toast.LENGTH_SHORT).show()
-                    }
-                }
-                is MediaViewerUiEvent.ShowToast -> {
-                    Toast.makeText(context, event.message, Toast.LENGTH_SHORT).show()
-                }
-                MediaViewerUiEvent.NavigateBack -> {
-                    onNavigateBack()
-                }
-            }
-        }
-    }
-    
-    DisposableEffect(Unit) {
-        onDispose {
-            if (window != null) {
-                val insetsController = WindowCompat.getInsetsController(window, view)
-                insetsController.show(WindowInsetsCompat.Type.systemBars())
-            }
-        }
-    }
-
-    var swipeOffset by remember { mutableStateOf(0f) }
+    val pagerState = rememberPagerState(initialPage = initialIndex, pageCount = { allMedia.size })
+    var barsVisible by remember { mutableStateOf(true) }
     var isPagingEnabled by remember { mutableStateOf(true) }
+    
+    val context = LocalContext.current
+    val window = (context as? Activity)?.window
+    val insetsController = remember { window?.let { WindowCompat.getInsetsController(it, it.decorView) } }
 
-    val swipeProgress = (swipeOffset / 600f).coerceIn(0f, 1f)
-    val scale = 1f - (swipeProgress * 0.2f)
-    val alpha = 1f - (swipeProgress * 0.5f)
+    LaunchedEffect(barsVisible) {
+        if (barsVisible) {
+            insetsController?.show(WindowInsetsCompat.Type.systemBars())
+            delay(3000)
+            barsVisible = false
+        } else {
+            insetsController?.hide(WindowInsetsCompat.Type.systemBars())
+            insetsController?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize().background(PureBlack)) {
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize(),
+            beyondBoundsPageCount = 1,
+            userScrollEnabled = isPagingEnabled
+        ) { page ->
+            SamsungGestureViewer(
+                media = allMedia[page],
+                isCurrentPage = page == pagerState.currentPage,
+                onTap = { barsVisible = !barsVisible },
+                onZoomChanged = { isZoomed -> isPagingEnabled = !isZoomed },
+                onDismiss = onNavigateBack
+            )
+        }
+
+        // Top Bar
+        AnimatedVisibility(
+            visible = barsVisible,
+            enter = fadeIn() + slideInVertically { -it },
+            exit = fadeOut() + slideOutVertically { -it }
+        ) {
+            ViewerTopBar(
+                title = allMedia[pagerState.currentPage].displayName,
+                onBack = onNavigateBack
+            )
+        }
+
+        // Bottom Bar
+        AnimatedVisibility(
+            visible = barsVisible,
+            enter = fadeIn() + slideInVertically { it },
+            exit = fadeOut() + slideOutVertically { it },
+            modifier = Modifier.align(Alignment.BottomCenter)
+        ) {
+            ViewerBottomBar()
+        }
+    }
+}
+
+@Composable
+fun SamsungGestureViewer(
+    media: LocalMedia,
+    isCurrentPage: Boolean,
+    onTap: () -> Unit,
+    onZoomChanged: (Boolean) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var scale by remember { mutableFloatStateOf(1f) }
+    var offset by remember { mutableStateOf(Offset.Zero) }
+    var dragY by remember { mutableFloatStateOf(0f) }
+    
+    val isZoomed = remember(scale) { scale > 1.05f }
+    LaunchedEffect(isZoomed) { onZoomChanged(isZoomed) }
+
+    // Reset zoom when not on current page
+    LaunchedEffect(isCurrentPage) {
+        if (!isCurrentPage) {
+            scale = 1f
+            offset = Offset.Zero
+        }
+    }
+
+    val animScale by animateFloatAsState(scale, spring(dampingRatio = 0.8f, stiffness = 400f))
+    val animOffset by animateOffsetAsState(offset, spring(dampingRatio = 0.8f, stiffness = 400f))
+    val animDragY by animateFloatAsState(dragY, spring(dampingRatio = 0.8f, stiffness = 400f))
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = alpha))
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-                translationY = swipeOffset
-            }
-            .pointerInput(isPagingEnabled) {
-                if (isPagingEnabled) {
-                    detectVerticalDragGestures(
-                        onVerticalDrag = { _, dragAmount ->
-                            swipeOffset = (swipeOffset + dragAmount).coerceAtLeast(0f)
-                        },
-                        onDragEnd = {
-                            if (swipeOffset > 300f) {
-                                onNavigateBack()
-                            } else {
-                                swipeOffset = 0f
-                            }
-                        },
-                        onDragCancel = { swipeOffset = 0f }
-                    )
+            .pointerInput(Unit) {
+                detectTransformGestures { _, pan, zoom, _ ->
+                    scale = (scale * zoom).coerceIn(1f, 5f)
+                    if (scale > 1f) offset += pan else offset = Offset.Zero
                 }
             }
-    ) {
-        if (state.isLoading) {
-            CircularProgressIndicator(
-                color = Color.White,
-                modifier = Modifier.align(Alignment.Center)
-            )
-        } else if (state.mediaItems.isEmpty() || state.error != null) {
-            Column(
-                modifier = Modifier.align(Alignment.Center),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Warning,
-                    contentDescription = "Error",
-                    tint = Color.Red,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
-                Text(
-                    text = state.error ?: "No media found", 
-                    color = Color.White
-                )
-            }
-        } else {
-            MediaPager(
-                state = state,
-                viewModel = viewModel,
-                onZoomChanged = { isZoomed -> isPagingEnabled = !isZoomed },
-                onTap = { 
-                    viewModel.onEvent(MediaViewerEvent.ToggleUiVisibility)
-                    if (window != null) {
-                        val insetsController = WindowCompat.getInsetsController(window, view)
-                        if (state.isUiVisible) {
-                            insetsController.hide(WindowInsetsCompat.Type.systemBars())
-                            insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onTap = { onTap() },
+                    onDoubleTap = {
+                        if (scale > 1.1f) {
+                            scale = 1f
+                            offset = Offset.Zero
                         } else {
-                            insetsController.show(WindowInsetsCompat.Type.systemBars())
+                            scale = 2.5f
                         }
                     }
-                }
-            )
-        }
-
-        if (state.mediaItems.isNotEmpty() && !state.isLoading) {
-            val safeIndex = state.currentIndex.coerceIn(0, (state.mediaItems.size - 1).coerceAtLeast(0))
-            val currentItem = state.mediaItems.getOrNull(safeIndex)
-
-            AnimatedVisibility(
-                visible = state.isUiVisible,
-                enter = fadeIn(),
-                exit = fadeOut(),
-                modifier = Modifier.align(Alignment.TopCenter)
-            ) {
-                TopOverlay(
-                    currentItem = currentItem,
-                    onBackClick = {
-                        viewModel.onEvent(MediaViewerEvent.OnBackClick)
-                        onNavigateBack()
-                    },
-                    onInfoClick = { viewModel.onEvent(MediaViewerEvent.ToggleInfoSheetVisibility) }
                 )
             }
-
-            AnimatedVisibility(
-                visible = state.isUiVisible,
-                enter = fadeIn(),
-                exit = fadeOut(),
-                modifier = Modifier.align(Alignment.BottomCenter)
-            ) {
-                BottomOverlay(
-                    isCloudOnly = currentItem?.localAvailability == com.localcloud.photosclient.data.LocalAvailability.CLOUD_ONLY,
-                    onShare = { viewModel.onEvent(MediaViewerEvent.OnShare) },
-                    onDelete = { viewModel.onEvent(MediaViewerEvent.OnDelete) },
-                    onBackup = { viewModel.onEvent(MediaViewerEvent.OnManualBackup) },
-                    onRestore = { viewModel.onEvent(MediaViewerEvent.OnRestore) }
-                )
-            }
-
-            if (state.isInfoSheetVisible && currentItem != null) {
-                MediaInfoSheet(
-                    item = currentItem,
-                    onDismiss = { viewModel.onEvent(MediaViewerEvent.ToggleInfoSheetVisibility) }
-                )
-            } else if (currentItem != null && !state.isUiVisible) {
-                BottomInfoPill(
-                    media = currentItem,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 24.dp)
-                )
-            }
-        }
-    }
-}
-
-@Composable
-fun BottomInfoPill(media: MediaItem, modifier: Modifier = Modifier) {
-    val dateFormatter = remember { SimpleDateFormat("MMM d, yyyy • HH:mm", Locale.getDefault()) }
-    val dateStr = dateFormatter.format(Date(media.dateModified))
-    val sizeStr = android.text.format.Formatter.formatShortFileSize(LocalContext.current, media.size)
-    val dimenStr = if (media.width > 0) "${media.width}x${media.height}" else ""
-
-    Surface(
-        color = Color.Black.copy(alpha = 0.6f),
-        shape = CircleShape,
-        modifier = modifier
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text(
-                text = dateStr,
-                color = Color.White.copy(alpha = 0.9f),
-                fontSize = 12.sp
-            )
-            if (dimenStr.isNotEmpty()) {
-                Box(Modifier.size(3.dp).background(Color.White.copy(alpha = 0.4f), CircleShape))
-                Text(
-                    text = dimenStr,
-                    color = Color.White.copy(alpha = 0.7f),
-                    fontSize = 11.sp
-                )
-            }
-            Box(Modifier.size(3.dp).background(Color.White.copy(alpha = 0.4f), CircleShape))
-            Text(
-                text = sizeStr,
-                color = Color.White.copy(alpha = 0.7f),
-                fontSize = 11.sp
-            )
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun MediaInfoSheet(
-    item: MediaItem,
-    onDismiss: () -> Unit
-) {
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(),
-        containerColor = MaterialTheme.colorScheme.surface,
-        contentColor = MaterialTheme.colorScheme.onSurface
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
-                .padding(bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Text(
-                text = "Details",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold
-            )
-
-            InfoRow(label = "Name", value = item.displayName)
-            InfoRow(label = "Type", value = item.type.name)
-            
-            val sizeMb = item.size / (1024f * 1024f)
-            InfoRow(label = "Size", value = String.format("%.2f MB", sizeMb))
-            
-            InfoRow(label = "Resolution", value = "${item.width} x ${item.height}")
-            
-            val date = SimpleDateFormat("MMM dd, yyyy HH:mm:ss", Locale.getDefault()).format(Date(item.dateModified * 1000))
-            InfoRow(label = "Date Modified", value = date)
-            
-            InfoRow(label = "Path", value = item.uri.path ?: "Unknown")
-        }
-    }
-}
-
-@Composable
-private fun InfoRow(label: String, value: String) {
-    Column {
-        Text(text = label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-        Text(text = value, style = MaterialTheme.typography.bodyLarge)
-    }
-}
-
-@Composable
-private fun BottomOverlay(
-    isCloudOnly: Boolean,
-    onShare: () -> Unit,
-    onDelete: () -> Unit,
-    onBackup: () -> Unit,
-    onRestore: () -> Unit
-) {
-    Surface(
-        color = Color.Black.copy(alpha = 0.5f),
-        contentColor = Color.White,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            ActionButton(icon = Icons.Default.Share, label = "Share", onClick = onShare)
-            
-            if (isCloudOnly) {
-                ActionButton(
-                    icon = Icons.Default.CloudDownload, 
-                    label = "Restore", 
-                    onClick = onRestore
-                )
-            } else {
-                ActionButton(
-                    icon = Icons.Default.CloudUpload, 
-                    label = "Backup", 
-                    onClick = onBackup
-                )
-            }
-
-            ActionButton(icon = Icons.Default.Delete, label = "Delete", onClick = onDelete, tint = Color.Red)
-        }
-    }
-}
-
-@Composable
-private fun ActionButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    onClick: () -> Unit,
-    tint: Color = Color.White
-) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
-            .clickable(onClick = onClick)
-            .padding(8.dp)
-    ) {
-        Icon(imageVector = icon, contentDescription = label, tint = tint)
-        Text(text = label, style = MaterialTheme.typography.labelSmall, color = tint)
-    }
-}
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun MediaPager(
-    state: MediaViewerState,
-    viewModel: MediaViewerViewModel,
-    onZoomChanged: (Boolean) -> Unit,
-    onTap: () -> Unit
-) {
-    var isZoomed by remember { mutableStateOf(false) }
-    
-    val initialPage = state.currentIndex.coerceIn(0, (state.mediaItems.size - 1).coerceAtLeast(0))
-    val pagerState = rememberPagerState(
-        initialPage = initialPage,
-        pageCount = { state.mediaItems.size }
-    )
-
-    LaunchedEffect(pagerState) {
-        snapshotFlow { pagerState.currentPage }
-            .distinctUntilChanged()
-            .collect { page ->
-                if (page != state.currentIndex && page in state.mediaItems.indices) {
-                    viewModel.onEvent(MediaViewerEvent.OnPageChanged(page))
-                    isZoomed = false
-                    onZoomChanged(false)
-                }
-            }
-    }
-
-    LaunchedEffect(state.currentIndex) {
-        val boundedIndex = state.currentIndex.coerceIn(0, (state.mediaItems.size - 1).coerceAtLeast(0))
-        if (boundedIndex != pagerState.currentPage && !pagerState.isScrollInProgress) {
-            pagerState.scrollToPage(boundedIndex)
-        }
-    }
-
-    HorizontalPager(
-        state = pagerState,
-        modifier = Modifier.fillMaxSize(),
-        beyondBoundsPageCount = 1,
-        userScrollEnabled = !isZoomed
-    ) { page ->
-        if (page !in state.mediaItems.indices) return@HorizontalPager
-        
-        val mediaItem = state.mediaItems[page]
-        val isCurrentPage = pagerState.currentPage == page
-        
-        val cachedPath = mediaItem.remoteId?.let { state.downloadedMediaMap[it] }
-        val cachedUri = cachedPath?.let { android.net.Uri.fromFile(java.io.File(it)) }
-        
-        when (mediaItem.type) {
-            com.localcloud.photosclient.domain.model.MediaType.IMAGE -> {
-                ZoomableImage(
-                    mediaItem = mediaItem,
-                    cachedUri = cachedUri,
-                    isCurrentPage = isCurrentPage,
-                    onTap = onTap,
-                    onZoomChanged = {
-                        isZoomed = it
-                        onZoomChanged(it)
-                    }
-                )
-            }
-            com.localcloud.photosclient.domain.model.MediaType.VIDEO -> {
-                VideoPlayer(
-                    mediaItem = mediaItem,
-                    cachedUri = cachedUri,
-                    isCurrentPage = isCurrentPage,
-                    onTap = onTap
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun TopOverlay(
-    currentItem: MediaItem?,
-    onBackClick: () -> Unit,
-    onInfoClick: () -> Unit
-) {
-    Surface(
-        color = Color.Black.copy(alpha = 0.5f),
-        contentColor = Color.White,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(
-            modifier = Modifier
-                .windowInsetsPadding(WindowInsets.statusBars)
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onBackClick) {
-                Icon(
-                    imageVector = Icons.Default.ArrowBack,
-                    contentDescription = "Back"
-                )
-            }
-            
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(horizontal = 8.dp)
-            ) {
-                Text(
-                    text = currentItem?.displayName ?: "",
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                if (currentItem != null) {
-                    val sizeMb = currentItem.size / (1024f * 1024f)
-                    Text(
-                        text = String.format("%.2f MB", sizeMb),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.LightGray
+            .pointerInput(isZoomed) {
+                if (!isZoomed) {
+                    detectVerticalDragGestures(
+                        onDragEnd = { if (dragY > 200f) onDismiss() else dragY = 0f },
+                        onVerticalDrag = { _, delta -> dragY = (dragY + delta).coerceAtLeast(0f) }
                     )
                 }
             }
+            .graphicsLayer {
+                val progress = (dragY / 400f).coerceIn(0f, 1f)
+                translationX = animOffset.x
+                translationY = animOffset.y + animDragY
+                scaleX = animScale * (1f - progress * 0.3f)
+                scaleY = animScale * (1f - progress * 0.3f)
+                alpha = 1f - progress * 0.6f
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        AsyncImage(
+            model = media.uri,
+            contentDescription = null,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.fillMaxSize()
+        )
+    }
+}
 
-            IconButton(onClick = onInfoClick) {
-                Icon(
-                    imageVector = Icons.Default.Info,
-                    contentDescription = "Information",
-                    tint = Color.White
-                )
-            }
+@Composable
+fun ViewerTopBar(title: String, onBack: () -> Unit) {
+    Surface(color = Color.Black.copy(alpha = 0.4f), contentColor = Color.White) {
+        Row(
+            modifier = Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars).padding(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") }
+            Text(text = title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         }
     }
+}
+
+@Composable
+fun ViewerBottomBar() {
+    Surface(color = Color.Black.copy(alpha = 0.6f), contentColor = Color.White) {
+        Row(
+            modifier = Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.navigationBars).padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceAround
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Default.Share, "Share"); Text("Share", fontSize = 10.sp) }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Default.Edit, "Edit"); Text("Edit", fontSize = 10.sp) }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Default.Delete, "Delete"); Text("Delete", fontSize = 10.sp) }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Default.MoreHoriz, "More"); Text("More", fontSize = 10.sp) }
+        }
+    }
+}
+
+@Composable
+fun animateOffsetAsState(
+    targetValue: Offset,
+    animationSpec: AnimationSpec<Offset> = spring()
+): State<Offset> {
+    val animX = animateFloatAsState(targetValue.x, animationSpec = spring())
+    val animY = animateFloatAsState(targetValue.y, animationSpec = spring())
+    return remember { derivedStateOf { Offset(animX.value, animY.value) } }
 }
