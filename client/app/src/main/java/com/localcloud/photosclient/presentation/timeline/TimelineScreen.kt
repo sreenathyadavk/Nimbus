@@ -1,13 +1,22 @@
 package com.localcloud.photosclient.presentation.timeline
 
+import android.content.ContentUris
+import android.provider.MediaStore
+import android.util.Log
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -15,30 +24,38 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.painter.ColorPainter
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.localcloud.photosclient.data.LocalMedia
-import com.localcloud.photosclient.presentation.components.DenseMediaItem
 import com.localcloud.photosclient.presentation.home.HomeSelectionEvent
 import com.localcloud.photosclient.ui.MainViewModel
 import com.localcloud.photosclient.ui.theme.*
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.Flow
+import java.io.File
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TimelineScreen(
     viewModel: MainViewModel,
     onMediaClick: (LocalMedia, List<LocalMedia>) -> Unit,
-    gridState: LazyGridState = rememberLazyGridState()
+    gridState: LazyGridState = rememberLazyGridState(),
+    overrideTimelineFlow: Flow<List<MainViewModel.TimelineGroup>>? = null
 ) {
-    val timelineGroups by viewModel.timelineFlow.collectAsState(initial = emptyList())
-    val selectionState by viewModel.selectionState.collectAsState()
+    val timelineGroups by (overrideTimelineFlow ?: viewModel.timelineFlow).collectAsStateWithLifecycle(initialValue = emptyList())
+    val selectionState by viewModel.selectionState.collectAsStateWithLifecycle()
     val haptic = LocalHapticFeedback.current
     
     // Pinch to resize logic
@@ -54,12 +71,20 @@ fun TimelineScreen(
             .fillMaxSize()
             .background(PureBlack)
             .pointerInput(Unit) {
-                detectTransformGestures { _, _, zoom, _ ->
-                    val newScale = (columnScale / zoom).coerceIn(1.5f, 4.5f)
-                    if (newScale.roundToInt() != columnScale.roundToInt()) {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    }
-                    columnScale = newScale
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    do {
+                        val event = awaitPointerEvent()
+                        val zoom = event.calculateZoom()
+                        if (zoom != 1f) {
+                            val newScale = (columnScale / zoom).coerceIn(1.5f, 4.5f)
+                            if (newScale.roundToInt() != columnScale.roundToInt()) {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            }
+                            columnScale = newScale
+                            event.changes.forEach { it.consume() }
+                        }
+                    } while (event.changes.any { it.pressed })
                 }
             }
     ) {
@@ -91,7 +116,9 @@ fun TimelineScreen(
                             if (selectionState.isSelectionMode) {
                                 viewModel.onSelectionEvent(HomeSelectionEvent.ToggleSelection(media))
                             } else {
-                                onMediaClick(media, timelineGroups.flatMap { it.items })
+                                val allFlattened = timelineGroups.flatMap { it.items }
+                                Log.d("NAV_DEBUG", "Tapping media ${media.id}, list size ${allFlattened.size}")
+                                onMediaClick(media, allFlattened)
                             }
                         },
                         onLongPress = {
@@ -122,6 +149,7 @@ fun TimelineHeader(title: String) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SamsungMediaCell(
     media: LocalMedia,
@@ -131,29 +159,42 @@ fun SamsungMediaCell(
     onClick: () -> Unit,
     onLongPress: () -> Unit
 ) {
+    val context = LocalContext.current
+    val uri = remember(media.id, media.mediaType) {
+        if (media.mediaType.startsWith("video")) {
+            ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, media.id)
+        } else {
+            ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, media.id)
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .aspectRatio(1f)
-            .padding(1.dp) // Minimal spacing to match Samsung closely
+            .padding(1.dp)
             .scale(scale)
             .clip(RoundedCornerShape(if (isSelected) 12.dp else 4.dp))
-            .background(DarkSurfaceVariant)
+            .background(Color(0xFF1A1A1A))
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongPress
             )
     ) {
         AsyncImage(
-            model = media.uri,
+            model = ImageRequest.Builder(context)
+                .data(uri)
+                .crossfade(true)
+                .build(),
             contentDescription = null,
+            placeholder = ColorPainter(Color(0xFF1A1A1A)),
+            error = ColorPainter(Color(0xFF2A2A2A)),
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer { alpha = if (isSelectionMode && !isSelected) 0.7f else 1f },
             contentScale = ContentScale.Crop
         )
 
-        // Selected Border
         if (isSelected) {
             Box(
                 modifier = Modifier
@@ -162,7 +203,6 @@ fun SamsungMediaCell(
             )
         }
 
-        // Selection Checkmark
         AnimatedVisibility(
             visible = isSelectionMode && isSelected,
             enter = scaleIn(spring(dampingRatio = 0.6f)) + fadeIn(),
@@ -179,7 +219,6 @@ fun SamsungMediaCell(
             }
         }
 
-        // Video Duration Badge
         if (media.mediaType.startsWith("video", ignoreCase = true)) {
             Row(
                 modifier = Modifier
@@ -191,7 +230,16 @@ fun SamsungMediaCell(
             ) {
                 Icon(Icons.Default.PlayArrow, contentDescription = null, tint = White, modifier = Modifier.size(14.dp))
                 Spacer(modifier = Modifier.width(2.dp))
-                Text(text = "0:15", color = White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                // Format duration properly if available
+                val dur = media.duration ?: 0L
+                val min = (dur / 1000) / 60
+                val sec = (dur / 1000) % 60
+                Text(
+                    text = String.format("%d:%02d", min, sec),
+                    color = White,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
     }

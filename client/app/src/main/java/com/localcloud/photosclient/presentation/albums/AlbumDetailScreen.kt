@@ -15,6 +15,7 @@ import com.localcloud.photosclient.data.LocalMedia
 import com.localcloud.photosclient.presentation.timeline.TimelineScreen
 import com.localcloud.photosclient.ui.MainViewModel
 import com.localcloud.photosclient.ui.theme.PureBlack
+import kotlinx.coroutines.flow.map
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -38,7 +39,7 @@ fun AlbumDetailScreen(
                             else -> true // Recents
                         }
                     } else {
-                        it.path.startsWith(album.folderPath ?: "")
+                        it.bucketName == album.bucketName
                     }
                 })
             }.filter { it.items.isNotEmpty() }

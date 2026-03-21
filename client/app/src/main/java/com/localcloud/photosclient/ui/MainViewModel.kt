@@ -11,9 +11,9 @@ import com.localcloud.photosclient.domain.model.MediaType
 import com.localcloud.photosclient.domain.repository.MediaSessionRepository
 import android.content.ContentUris
 import android.provider.MediaStore
+import android.util.Log
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -23,12 +23,9 @@ import com.localcloud.photosclient.sync.SyncManager
 import com.localcloud.photosclient.data.preferences.SettingsDataStore
 import java.io.File
 import javax.inject.Inject
-import android.net.Uri
 import java.util.Calendar
 import java.util.Locale
 import java.text.SimpleDateFormat
-
-data class Album(val name: String, val folderPath: String, val coverPath: String, val count: Int)
 
 data class SyncStats(
     val total: Int = 0, 
@@ -59,60 +56,16 @@ class MainViewModel @Inject constructor(
             initialValue = emptyList()
         )
 
-    val favoritesFlow: StateFlow<List<LocalMedia>> = mediaDao.getFavoritesFlow()
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
-        )
+    val favoritesFlow: StateFlow<List<LocalMedia>> = mediaFlow.map { list ->
+        list.filter { it.isFavorite && !it.isDeleted }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val trashFlow: StateFlow<List<LocalMedia>> = mediaDao.getTrashFlow()
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
-        )
-
-    val albumsFlow: StateFlow<List<com.localcloud.photosclient.data.AlbumStats>> = mediaDao.getAlbumsFlow()
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
-        )
+    val trashFlow: StateFlow<List<LocalMedia>> = mediaFlow.map { list ->
+        list.filter { it.isDeleted }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     data class TimelineGroup(val title: String, val items: List<LocalMedia>)
     
-    private val _gridColumns = MutableStateFlow(3)
-    val gridColumns: StateFlow<Int> = _gridColumns.asStateFlow()
-
-    fun updateGridColumns(delta: Int) {
-        _gridColumns.update { (it + delta).coerceIn(2, 4) }
-    }
-
-    val photosFlow: StateFlow<List<TimelineGroup>> = mediaFlow.map { list ->
-        val sorted = list.filter { !it.isDeleted }.sortedByDescending { it.dateAdded }
-        val groups = mutableListOf<TimelineGroup>()
-        val monthFormat = SimpleDateFormat("MMMM yyyy", Locale.getDefault())
-        val monthlyGroups = mutableMapOf<String, MutableList<LocalMedia>>()
-
-        sorted.forEach { item ->
-            val key = monthFormat.format(java.util.Date(item.dateAdded))
-            monthlyGroups.getOrPut(key) { mutableListOf() }.add(item)
-        }
-
-        monthlyGroups.entries
-            .sortedByDescending { it.value.first().dateAdded }
-            .forEach { (title, items) ->
-                groups.add(TimelineGroup(title, items))
-            }
-
-        groups
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = emptyList()
-    )
-
     val timelineFlow: StateFlow<List<TimelineGroup>> = mediaFlow.map { list ->
         val sorted = list.filter { !it.isDeleted }.sortedByDescending { it.dateAdded }
         val groups = mutableListOf<TimelineGroup>()
@@ -142,7 +95,6 @@ class MainViewModel @Inject constructor(
         if (todayItems.isNotEmpty()) groups.add(TimelineGroup("Today", todayItems))
         if (yesterdayItems.isNotEmpty()) groups.add(TimelineGroup("Yesterday", yesterdayItems))
         
-        // Sort remaining dates by reverse chronological order
         dateGroups.entries
             .sortedByDescending { it.value.first().dateAdded }
             .forEach { (title, items) ->
@@ -156,6 +108,17 @@ class MainViewModel @Inject constructor(
         initialValue = emptyList()
     )
 
+    private val _activeViewerList = MutableStateFlow<List<LocalMedia>>(emptyList())
+    val activeViewerList: StateFlow<List<LocalMedia>> = _activeViewerList.asStateFlow()
+
+    fun setActiveViewerList(list: List<LocalMedia>) {
+        Log.d("NAV_DEBUG", "MainViewModel: Setting activeViewerList size=${list.size}")
+        _activeViewerList.value = list
+    }
+
+    private val _selectionState = MutableStateFlow(HomeSelectionState())
+    val selectionState: StateFlow<HomeSelectionState> = _selectionState.asStateFlow()
+
     private fun getStartOfDay(timestamp: Long): Long {
         val cal = Calendar.getInstance()
         cal.timeInMillis = timestamp
@@ -165,66 +128,6 @@ class MainViewModel @Inject constructor(
         cal.set(Calendar.MILLISECOND, 0)
         return cal.timeInMillis
     }
-
-
-
-    val syncStatsFlow: StateFlow<SyncStats> = mediaFlow.map { list ->
-        val total = list.size
-        val synced = list.count { it.uploadStatus == "SUCCESS" }
-        val pending = list.count { it.uploadStatus == "PENDING" }
-        val uploading = list.count { it.uploadStatus == "UPLOADING" }
-        val failed = list.count { it.uploadStatus == "FAILED" }
-        
-        // Calculate overall progress across files that are currently uploading (not fully synced)
-        // If nothing is uploading, progress is 0. 
-        val uploadingFiles = list.filter { it.uploadStatus == "UPLOADING" }
-        var avgProgress = 0
-        if (uploadingFiles.isNotEmpty()) {
-            var totalBytes = 0L
-            var uploadedBytes = 0L
-            for (file in uploadingFiles) {
-                val size = File(file.path).length()
-                totalBytes += size
-                uploadedBytes += (size * (file.progress / 100.0)).toLong()
-            }
-            if (totalBytes > 0) {
-                avgProgress = ((uploadedBytes.toDouble() / totalBytes) * 100).toInt()
-            }
-        }
-
-        SyncStats(
-            total = total,
-            synced = synced,
-            pending = pending,
-            uploading = uploading,
-            failed = failed,
-            overallProgressPercentage = avgProgress
-        )
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = SyncStats()
-    )
-
-    private val _isSyncing = MutableStateFlow(false)
-    val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
-
-    fun refreshMedia() {
-        viewModelScope.launch {
-            _isSyncing.value = true
-            mediaStoreManager.scanAndSyncMediaStore()
-            _isSyncing.value = false
-        }
-    }
-
-    fun getMediaByFolder(folderPath: String): Flow<List<LocalMedia>> {
-        return mediaFlow.map { list ->
-            list.filter { File(it.path).parentFile?.absolutePath == folderPath }
-        }
-    }
-
-    private val _selectionState = MutableStateFlow(HomeSelectionState())
-    val selectionState: StateFlow<HomeSelectionState> = _selectionState.asStateFlow()
 
     fun onSelectionEvent(event: HomeSelectionEvent) {
         when (event) {
@@ -239,155 +142,56 @@ class MainViewModel @Inject constructor(
             is HomeSelectionEvent.ToggleSelection -> {
                 _selectionState.update { state ->
                     if (!state.isSelectionMode) return@update state
-                    
                     val newSelection = if (state.selectedItems.contains(event.media.id)) {
                         state.selectedItems - event.media.id
                     } else {
                         state.selectedItems + event.media.id
                     }
-                    
-                    state.copy(
-                        selectedItems = newSelection,
-                        isSelectionMode = newSelection.isNotEmpty()
-                    )
+                    state.copy(selectedItems = newSelection, isSelectionMode = newSelection.isNotEmpty())
                 }
             }
             is HomeSelectionEvent.ClearSelection -> {
-                _selectionState.update { 
-                    it.copy(
-                        isSelectionMode = false,
-                        selectedItems = emptySet()
-                    ) 
-                }
+                _selectionState.update { it.copy(isSelectionMode = false, selectedItems = emptySet()) }
             }
         }
     }
 
-    fun triggerManualSync() {
-        refreshMedia()
+    fun refreshMedia() {
+        viewModelScope.launch {
+            mediaStoreManager.scanAndSyncMediaStore()
+        }
     }
+
+    val syncStatsFlow: StateFlow<SyncStats> = mediaFlow.map { list ->
+        SyncStats(
+            total = list.size,
+            synced = list.count { it.uploadStatus == "SUCCESS" },
+            pending = list.count { it.uploadStatus == "PENDING" },
+            uploading = list.count { it.uploadStatus == "UPLOADING" },
+            failed = list.count { it.uploadStatus == "FAILED" }
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SyncStats())
 
     fun triggerGlobalManualBackup() {
         viewModelScope.launch {
-            _isSyncing.value = true
             withContext(Dispatchers.IO) {
-                android.util.Log.d("SYNC_DEBUG", "Manual backup triggered")
                 val wifiOnly = settingsDataStore.syncWifiOnly.first()
                 val chargingOnly = settingsDataStore.syncOnChargingOnly.first()
-                
                 val count = mediaDao.queueAllUnsynced(System.currentTimeMillis())
                 if (count > 0) {
-                    _uiEvent.emit("Backing up $count items...")
                     SyncManager.forceSync(getApplication(), requireWifi = wifiOnly, requireCharging = chargingOnly)
-                    settingsDataStore.updateLastSyncTime(System.currentTimeMillis())
-                } else {
-                    _uiEvent.emit("All items already backed up")
                 }
             }
-            _isSyncing.value = false
         }
-    }
-
-    fun triggerManualSyncForSelectedItems() {
-        viewModelScope.launch {
-            val selectedIds = _selectionState.value.selectedItems
-            android.util.Log.d("SYNC_DEBUG", "MainViewModel: triggerManualSyncForSelectedItems called for IDs: $selectedIds")
-            if (selectedIds.isEmpty()) return@launch
-
-            _isSyncing.value = true
-            withContext(Dispatchers.IO) {
-                // Ensure we only queue items that are not already SYNCED ("SUCCESS")
-                val allMedia = mediaFlow.value
-                val unsyncedSelectedIds = allMedia
-                    .filter { it.id in selectedIds && it.uploadStatus != "SUCCESS" }
-                    .map { it.id }
-
-                if (unsyncedSelectedIds.isNotEmpty()) {
-                    android.util.Log.d("SYNC_DEBUG", "MainViewModel: Setting status to PENDING for IDs: $unsyncedSelectedIds")
-                    _uiEvent.emit("Backing up ${unsyncedSelectedIds.size} selected items...")
-                    mediaDao.setStatusForIds(unsyncedSelectedIds, "PENDING", System.currentTimeMillis())
-                    val wifiOnly = settingsDataStore.syncWifiOnly.first()
-                    val chargingOnly = settingsDataStore.syncOnChargingOnly.first()
-                    android.util.Log.d("SYNC_DEBUG", "MainViewModel: Forcing SyncManager execution")
-                    SyncManager.forceSync(getApplication(), requireWifi = wifiOnly, requireCharging = chargingOnly)
-                    settingsDataStore.updateLastSyncTime(System.currentTimeMillis())
-                } else {
-                    _uiEvent.emit("Selected items already backed up")
-                }
-            }
-            
-            _isSyncing.value = false
-            onSelectionEvent(HomeSelectionEvent.ClearSelection)
-        }
-    }
-
-    fun onMediaClick(media: LocalMedia, allMedia: List<LocalMedia>) {
-        android.util.Log.d("MainViewModel", "onMediaClick: Mapping ${allMedia.size} items to MediaItem")
-        val mappedList = allMedia.map { local ->
-            val uri = if (local.mediaType.startsWith("video")) {
-                ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, local.id)
-            } else {
-                ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, local.id)
-            }
-            MediaItem(
-                id = local.id,
-                uri = uri,
-                type = if (local.mediaType.startsWith("video")) MediaType.VIDEO else MediaType.IMAGE,
-                displayName = File(local.path).name,
-                size = File(local.path).length(),
-                dateModified = local.dateAdded,
-                width = local.width,
-                height = local.height,
-                duration = local.duration,
-                remoteId = local.remoteId,
-                localAvailability = local.localAvailability
-            )
-        }
-        sessionRepository.setActiveMediaList(mappedList)
     }
 
     fun retryFailedUpload(mediaId: Long) {
         viewModelScope.launch(Dispatchers.IO) {
             mediaDao.updateStatus(mediaId, "PENDING", 0, System.currentTimeMillis())
             mediaDao.updateProgress(mediaId, 0)
-            
             val wifiOnly = settingsDataStore.syncWifiOnly.first()
             val chargingOnly = settingsDataStore.syncOnChargingOnly.first()
             SyncManager.forceSync(getApplication(), requireWifi = wifiOnly, requireCharging = chargingOnly)
-        }
-    }
-
-    fun toggleFavorite(mediaId: Long, isFavorite: Boolean) {
-        viewModelScope.launch(Dispatchers.IO) {
-            mediaDao.getMediaById(mediaId)?.let { media ->
-                mediaDao.updateMedia(media.copy(isFavorite = isFavorite))
-            }
-        }
-    }
-
-    fun moveToTrash(mediaId: Long) {
-        viewModelScope.launch(Dispatchers.IO) {
-            mediaDao.getMediaById(mediaId)?.let { media ->
-                mediaDao.updateMedia(media.copy(isDeleted = true, deletedAt = System.currentTimeMillis()))
-            }
-        }
-    }
-
-    fun restoreFromTrash(mediaId: Long) {
-        viewModelScope.launch(Dispatchers.IO) {
-            mediaDao.getMediaById(mediaId)?.let { media ->
-                mediaDao.updateMedia(media.copy(isDeleted = false, deletedAt = null))
-            }
-        }
-    }
-
-    fun deletePermanently(mediaId: Long) {
-        viewModelScope.launch(Dispatchers.IO) {
-            mediaDao.getMediaById(mediaId)?.let { media ->
-                val file = File(media.path)
-                if (file.exists()) file.delete()
-                mediaDao.deleteMediaById(mediaId)
-            }
         }
     }
 }

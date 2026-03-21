@@ -21,7 +21,7 @@ fun TrashScreen(
     onBackClick: () -> Unit
 ) {
     val trashTimelineFlow = remember {
-        viewModel.trashFlow.map { list ->
+        viewModel.trashFlow.map { list: List<LocalMedia> ->
             val groups = mutableListOf<MainViewModel.TimelineGroup>()
             if (list.isNotEmpty()) {
                 groups.add(MainViewModel.TimelineGroup("Deleted Items", list))
@@ -43,9 +43,16 @@ fun TrashScreen(
                     IconButton(onClick = { /* Empty trash logic */ }) {
                         Icon(Icons.Default.DeleteSweep, contentDescription = "Empty Trash")
                     }
-                }
+                },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = com.localcloud.photosclient.ui.theme.PureBlack,
+                    titleContentColor = com.localcloud.photosclient.ui.theme.White,
+                    navigationIconContentColor = com.localcloud.photosclient.ui.theme.White,
+                    actionIconContentColor = com.localcloud.photosclient.ui.theme.White
+                )
             )
-        }
+        },
+        containerColor = com.localcloud.photosclient.ui.theme.PureBlack
     ) { padding ->
         Column(modifier = Modifier.padding(padding)) {
             Text(

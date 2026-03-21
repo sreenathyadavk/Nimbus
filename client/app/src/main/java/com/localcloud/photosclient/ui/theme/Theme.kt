@@ -25,7 +25,6 @@ fun PhotosClientTheme(
 ) {
     MaterialTheme(
         colorScheme = DarkColorScheme,
-        typography = Typography,
         content = content
     )
 }

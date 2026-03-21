@@ -1,16 +1,18 @@
 package com.localcloud.photosclient
 
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.*
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -19,24 +21,27 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.view.WindowCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.navigation.NavType
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
+import com.localcloud.photosclient.data.LocalMedia
 import com.localcloud.photosclient.presentation.albums.AlbumsScreen
 import com.localcloud.photosclient.presentation.home.HomeSelectionEvent
+import com.localcloud.photosclient.presentation.home.HomeSelectionState
 import com.localcloud.photosclient.presentation.timeline.TimelineScreen
+import com.localcloud.photosclient.presentation.viewer.MediaViewerScreen
 import com.localcloud.photosclient.ui.MainViewModel
-import com.localcloud.photosclient.ui.theme.PhotosClientTheme
-import com.localcloud.photosclient.ui.theme.PureBlack
-import com.localcloud.photosclient.ui.theme.BottomNavBackground
-import com.localcloud.photosclient.ui.theme.SamsungBlue
+import com.localcloud.photosclient.ui.theme.*
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        WindowCompat.setDecorFitsSystemWindows(window, false)
-        
         setContent {
             PhotosClientTheme {
                 MainContainer()
@@ -45,8 +50,42 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MainContainer(viewModel: MainViewModel = hiltViewModel()) {
+    val navController = rememberNavController()
+    
+    NavHost(navController = navController, startDestination = "home") {
+        composable("home") {
+            HomeScreen(
+                viewModel = viewModel,
+                onMediaClick = { media: LocalMedia, list: List<LocalMedia> ->
+                    val index = list.indexOf(media)
+                    Log.d("NAV_DEBUG", "MainActivity: onMediaClick index=$index size=${list.size}")
+                    viewModel.setActiveViewerList(list)
+                    navController.navigate("viewer/${if (index != -1) index else 0}")
+                }
+            )
+        }
+        composable(
+            route = "viewer/{index}",
+            arguments = listOf(navArgument("index") { type = NavType.IntType })
+        ) { backStackEntry ->
+            val index = backStackEntry.arguments?.getInt("index") ?: 0
+            MediaViewerScreen(
+                initialIndex = index,
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun HomeScreen(
+    viewModel: MainViewModel,
+    onMediaClick: (LocalMedia, List<LocalMedia>) -> Unit
+) {
     val selectionState by viewModel.selectionState.collectAsState()
     val pagerState = rememberPagerState(pageCount = { 2 })
     val coroutineScope = rememberCoroutineScope()
@@ -55,17 +94,15 @@ fun MainContainer(viewModel: MainViewModel = hiltViewModel()) {
         topBar = {
             TopNavigationBar(
                 selectionState = selectionState,
-                onClearSelection = { viewModel.onSelectionEvent(HomeSelectionEvent.ClearSelection) },
-                onShare = { /* TODO */ },
-                onDelete = { /* TODO */ }
+                onClearSelection = { viewModel.onSelectionEvent(HomeSelectionEvent.ClearSelection) }
             )
         },
         bottomBar = {
             if (!selectionState.isSelectionMode) {
                 SamsungBottomNav(
                     selectedTabIndex = pagerState.currentPage,
-                    onTabSelected = { index ->
-                        androidx.compose.runtime.rememberCoroutineScope().launch {
+                    onTabSelected = { index: Int ->
+                        coroutineScope.launch {
                             pagerState.animateScrollToPage(index)
                         }
                     }
@@ -74,14 +111,17 @@ fun MainContainer(viewModel: MainViewModel = hiltViewModel()) {
         },
         containerColor = PureBlack
     ) { padding ->
-        Box(modifier = Modifier.padding(padding)) {
+        Box(modifier = Modifier.padding(padding).fillMaxSize()) {
             HorizontalPager(
                 state = pagerState,
                 modifier = Modifier.fillMaxSize(),
                 userScrollEnabled = !selectionState.isSelectionMode
             ) { page ->
                 when (page) {
-                    0 -> TimelineScreen(viewModel = viewModel, onMediaClick = { _, _ -> /* Navigate to Viewer */ })
+                    0 -> TimelineScreen(
+                        viewModel = viewModel, 
+                        onMediaClick = onMediaClick
+                    )
                     1 -> AlbumsScreen()
                 }
             }
@@ -89,60 +129,48 @@ fun MainContainer(viewModel: MainViewModel = hiltViewModel()) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TopNavigationBar(
-    selectionState: com.localcloud.photosclient.presentation.home.SelectionState,
-    onClearSelection: () -> Unit,
-    onShare: () -> Unit,
-    onDelete: () -> Unit
+    selectionState: HomeSelectionState,
+    onClearSelection: () -> Unit
 ) {
-    TopAppBar(
-        title = {
-            if (selectionState.isSelectionMode) {
-                Text(
-                    text = "${selectionState.selectedCount} selected",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = Color.White
-                )
-            } else {
-                Text(
-                    text = "Nimbus",
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-            }
-        },
-        navigationIcon = {
+    Surface(
+        color = PureBlack,
+        contentColor = White
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .height(64.dp)
+                .padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             if (selectionState.isSelectionMode) {
                 IconButton(onClick = onClearSelection) {
-                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                    Icon(Icons.Default.Close, contentDescription = "Clear")
                 }
-            }
-        },
-        actions = {
-            if (selectionState.isSelectionMode) {
-                IconButton(onClick = onShare) {
-                    Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.White)
-                }
-                IconButton(onClick = onDelete) {
-                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.White)
-                }
+                Spacer(modifier = Modifier.width(16.dp))
+                Text(
+                    text = "${selectionState.selectedCount} selected",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.weight(1f))
+                IconButton(onClick = { /* Share */ }) { Icon(Icons.Default.Share, "Share") }
+                IconButton(onClick = { /* Delete */ }) { Icon(Icons.Default.Delete, "Delete") }
             } else {
-                IconButton(onClick = { }) {
-                    Icon(Icons.Default.Search, contentDescription = "Search", tint = Color.White)
-                }
-                IconButton(onClick = { }) {
-                    Icon(Icons.Default.MoreVert, contentDescription = "More", tint = Color.White)
-                }
+                Text(
+                    text = "Samsung Photos",
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = { /* Search */ }) { Icon(Icons.Default.Search, "Search") }
+                IconButton(onClick = { /* Menu */ }) { Icon(Icons.Default.MoreVert, "More") }
             }
-        },
-        colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = Color.Transparent,
-            scrolledContainerColor = BottomNavBackground.copy(alpha = 0.9f)
-        )
-    )
+        }
+    }
 }
 
 @Composable
@@ -150,46 +178,60 @@ fun SamsungBottomNav(
     selectedTabIndex: Int,
     onTabSelected: (Int) -> Unit
 ) {
-    NavigationBar(
-        containerColor = BottomNavBackground,
-        tonalElevation = 0.dp,
-        modifier = Modifier.height(60.dp)
+    Surface(
+        color = BottomNavBackground,
+        contentColor = White,
+        modifier = Modifier.fillMaxWidth()
     ) {
-        NavigationBarItem(
-            selected = selectedTabIndex == 0,
-            onClick = { onTabSelected(0) },
-            icon = {
-                Icon(
-                    imageVector = if (selectedTabIndex == 0) Icons.Filled.Photo else Icons.Outlined.Photo,
-                    contentDescription = "Photos"
-                )
-            },
-            label = { Text("Photos", fontSize = 11.sp) },
-            colors = NavigationBarItemDefaults.colors(
-                selectedIconColor = Color.White,
-                selectedTextColor = Color.White,
-                unselectedIconColor = Color.Gray,
-                unselectedTextColor = Color.Gray,
-                indicatorColor = Color.Transparent
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .height(80.dp),
+            horizontalArrangement = Arrangement.SpaceAround,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            BottomNavItem(
+                icon = if (selectedTabIndex == 0) Icons.Default.Photo else Icons.Default.Photo,
+                label = "Pictures",
+                isSelected = selectedTabIndex == 0,
+                onClick = { onTabSelected(0) }
             )
+            BottomNavItem(
+                icon = if (selectedTabIndex == 1) Icons.Default.Collections else Icons.Default.Collections,
+                label = "Albums",
+                isSelected = selectedTabIndex == 1,
+                onClick = { onTabSelected(1) }
+            )
+        }
+    }
+}
+
+@Composable
+fun BottomNavItem(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .clickable { onClick() }
+            .padding(horizontal = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = if (isSelected) SamsungBlue else UnselectedNav,
+            modifier = Modifier.size(26.dp)
         )
-        NavigationBarItem(
-            selected = selectedTabIndex == 1,
-            onClick = { onTabSelected(1) },
-            icon = {
-                Icon(
-                    imageVector = if (selectedTabIndex == 1) Icons.Filled.PhotoLibrary else Icons.Outlined.PhotoLibrary,
-                    contentDescription = "Albums"
-                )
-            },
-            label = { Text("Albums", fontSize = 11.sp) },
-            colors = NavigationBarItemDefaults.colors(
-                selectedIconColor = Color.White,
-                selectedTextColor = Color.White,
-                unselectedIconColor = Color.Gray,
-                unselectedTextColor = Color.Gray,
-                indicatorColor = Color.Transparent
-            )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = label,
+            fontSize = 12.sp,
+            color = if (isSelected) SamsungBlue else UnselectedNav,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
         )
     }
 }

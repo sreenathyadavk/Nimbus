@@ -1,6 +1,8 @@
 package com.localcloud.photosclient.presentation.viewer
 
 import android.app.Activity
+import android.content.ContentUris
+import android.provider.MediaStore
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
@@ -17,30 +19,49 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.painter.ColorPainter
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.localcloud.photosclient.data.LocalMedia
+import com.localcloud.photosclient.ui.MainViewModel
 import com.localcloud.photosclient.ui.theme.PureBlack
-import kotlinx.coroutines.delay
-import kotlin.math.roundToInt
+import com.localcloud.photosclient.ui.theme.White
+import java.io.File
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MediaViewerScreen(
     initialIndex: Int,
-    allMedia: List<LocalMedia>,
+    viewModel: MainViewModel = hiltViewModel(),
     onNavigateBack: () -> Unit
 ) {
-    val pagerState = rememberPagerState(initialPage = initialIndex, pageCount = { allMedia.size })
+    val mediaList by viewModel.activeViewerList.collectAsStateWithLifecycle()
+    
+    // ROOT CAUSE FIX: Wait for data before rendering or initializing pager
+    if (mediaList.isEmpty()) {
+        Box(modifier = Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(color = White)
+        }
+        return
+    }
+
+    // Initialize state only when list is ready
+    val pagerState = rememberPagerState(
+        initialPage = initialIndex.coerceIn(0, mediaList.lastIndex),
+        pageCount = { mediaList.size }
+    )
+    
     var barsVisible by remember { mutableStateOf(true) }
     var isPagingEnabled by remember { mutableStateOf(true) }
     
@@ -51,50 +72,52 @@ fun MediaViewerScreen(
     LaunchedEffect(barsVisible) {
         if (barsVisible) {
             insetsController?.show(WindowInsetsCompat.Type.systemBars())
-            delay(3000)
-            barsVisible = false
         } else {
             insetsController?.hide(WindowInsetsCompat.Type.systemBars())
             insetsController?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(PureBlack)) {
-        HorizontalPager(
-            state = pagerState,
-            modifier = Modifier.fillMaxSize(),
-            beyondBoundsPageCount = 1,
-            userScrollEnabled = isPagingEnabled
-        ) { page ->
-            SamsungGestureViewer(
-                media = allMedia[page],
-                isCurrentPage = page == pagerState.currentPage,
-                onTap = { barsVisible = !barsVisible },
-                onZoomChanged = { isZoomed -> isPagingEnabled = !isZoomed },
-                onDismiss = onNavigateBack
-            )
-        }
+    Scaffold(containerColor = Color.Black) { _ ->
+        Box(modifier = Modifier.fillMaxSize()) {
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize(),
+                beyondBoundsPageCount = 1,
+                userScrollEnabled = isPagingEnabled
+            ) { page ->
+                if (page < mediaList.size) {
+                    SamsungGestureViewer(
+                        media = mediaList[page],
+                        isCurrentPage = page == pagerState.currentPage,
+                        onTap = { barsVisible = !barsVisible },
+                        onZoomChanged = { isZoomed -> isPagingEnabled = !isZoomed },
+                        onDismiss = onNavigateBack
+                    )
+                }
+            }
 
-        // Top Bar
-        AnimatedVisibility(
-            visible = barsVisible,
-            enter = fadeIn() + slideInVertically { -it },
-            exit = fadeOut() + slideOutVertically { -it }
-        ) {
-            ViewerTopBar(
-                title = allMedia[pagerState.currentPage].displayName,
-                onBack = onNavigateBack
-            )
-        }
+            // Top Bar
+            AnimatedVisibility(
+                visible = barsVisible,
+                enter = fadeIn() + slideInVertically { -it },
+                exit = fadeOut() + slideOutVertically { -it }
+            ) {
+                ViewerTopBar(
+                    title = if (pagerState.currentPage < mediaList.size) File(mediaList[pagerState.currentPage].path).name else "",
+                    onBack = onNavigateBack
+                )
+            }
 
-        // Bottom Bar
-        AnimatedVisibility(
-            visible = barsVisible,
-            enter = fadeIn() + slideInVertically { it },
-            exit = fadeOut() + slideOutVertically { it },
-            modifier = Modifier.align(Alignment.BottomCenter)
-        ) {
-            ViewerBottomBar()
+            // Bottom Bar
+            AnimatedVisibility(
+                visible = barsVisible,
+                enter = fadeIn() + slideInVertically { it },
+                exit = fadeOut() + slideOutVertically { it },
+                modifier = Modifier.align(Alignment.BottomCenter)
+            ) {
+                ViewerBottomBar()
+            }
         }
     }
 }
@@ -114,11 +137,11 @@ fun SamsungGestureViewer(
     val isZoomed = remember(scale) { scale > 1.05f }
     LaunchedEffect(isZoomed) { onZoomChanged(isZoomed) }
 
-    // Reset zoom when not on current page
     LaunchedEffect(isCurrentPage) {
         if (!isCurrentPage) {
             scale = 1f
             offset = Offset.Zero
+            dragY = 0f
         }
     }
 
@@ -166,18 +189,32 @@ fun SamsungGestureViewer(
             },
         contentAlignment = Alignment.Center
     ) {
+        val uri = remember(media.id, media.mediaType) {
+            if (media.mediaType.startsWith("video")) {
+                ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, media.id)
+            } else {
+                ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, media.id)
+            }
+        }
+
         AsyncImage(
-            model = media.uri,
+            model = ImageRequest.Builder(LocalContext.current)
+                .data(uri)
+                .crossfade(true)
+                .size(coil.size.Size.ORIGINAL)
+                .build(),
             contentDescription = null,
             contentScale = ContentScale.Fit,
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.fillMaxSize(),
+            placeholder = ColorPainter(Color(0xFF111111)),
+            error = ColorPainter(Color(0xFF222222))
         )
     }
 }
 
 @Composable
 fun ViewerTopBar(title: String, onBack: () -> Unit) {
-    Surface(color = Color.Black.copy(alpha = 0.4f), contentColor = Color.White) {
+    Surface(color = Color.Black.copy(alpha = 0.4f), contentColor = White) {
         Row(
             modifier = Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars).padding(8.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -190,15 +227,15 @@ fun ViewerTopBar(title: String, onBack: () -> Unit) {
 
 @Composable
 fun ViewerBottomBar() {
-    Surface(color = Color.Black.copy(alpha = 0.6f), contentColor = Color.White) {
+    Surface(color = Color.Black.copy(alpha = 0.6f), contentColor = White) {
         Row(
             modifier = Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.navigationBars).padding(16.dp),
             horizontalArrangement = Arrangement.SpaceAround
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Default.Share, "Share"); Text("Share", fontSize = 10.sp) }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Default.Edit, "Edit"); Text("Edit", fontSize = 10.sp) }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Default.Delete, "Delete"); Text("Delete", fontSize = 10.sp) }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Default.MoreHoriz, "More"); Text("More", fontSize = 10.sp) }
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable {}) { Icon(Icons.Default.Share, "Share"); Text("Share", fontSize = 10.sp) }
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable {}) { Icon(Icons.Default.Edit, "Edit"); Text("Edit", fontSize = 10.sp) }
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable {}) { Icon(Icons.Default.Delete, "Delete"); Text("Delete", fontSize = 10.sp) }
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable {}) { Icon(Icons.Default.MoreHoriz, "More"); Text("More", fontSize = 10.sp) }
         }
     }
 }

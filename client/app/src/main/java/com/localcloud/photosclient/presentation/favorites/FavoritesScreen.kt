@@ -20,12 +20,14 @@ fun FavoritesScreen(
 ) {
     // Group favorites by date for TimelineScreen
     val favoritesTimelineFlow = remember {
-        viewModel.favoritesFlow.map { list ->
+        viewModel.favoritesFlow.map { list: List<LocalMedia> ->
             val groups = mutableListOf<MainViewModel.TimelineGroup>()
             val dateFormat = java.text.SimpleDateFormat("MMMM yyyy", java.util.Locale.getDefault())
             val dateGroups = list.groupBy { dateFormat.format(java.util.Date(it.dateAdded)) }
             
-            dateGroups.entries.sortedByDescending { it.value.first().dateAdded }.forEach { (title, items) ->
+            dateGroups.entries.sortedByDescending { it.value.first().dateAdded }.forEach { entry ->
+                val title = entry.key
+                val items = entry.value
                 groups.add(MainViewModel.TimelineGroup(title, items))
             }
             groups
@@ -40,9 +42,15 @@ fun FavoritesScreen(
                     IconButton(onClick = onBackClick) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                     }
-                }
+                },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = com.localcloud.photosclient.ui.theme.PureBlack,
+                    titleContentColor = com.localcloud.photosclient.ui.theme.White,
+                    navigationIconContentColor = com.localcloud.photosclient.ui.theme.White
+                )
             )
-        }
+        },
+        containerColor = com.localcloud.photosclient.ui.theme.PureBlack
     ) { padding ->
         Box(modifier = Modifier.padding(padding)) {
             TimelineScreen(
