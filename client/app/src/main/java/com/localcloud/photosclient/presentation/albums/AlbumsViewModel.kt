@@ -1,7 +1,8 @@
 package com.localcloud.photosclient.presentation.albums
 
 import android.app.Application
-import android.util.Log
+import android.content.ContentUris
+import android.provider.MediaStore
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.localcloud.photosclient.data.AppDatabase
@@ -10,12 +11,12 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import javax.inject.Inject
 
-data class Album(
+data class AlbumUiModel(
+    val id: String,
     val name: String,
-    val coverUri: String?,
     val count: Int,
-    val isSpecial: Boolean = false,
-    val bucketName: String? = null
+    val coverUri: String,
+    val filter: (LocalMedia) -> Boolean
 )
 
 @HiltViewModel
@@ -25,35 +26,93 @@ class AlbumsViewModel @Inject constructor(
 
     private val mediaDao = AppDatabase.getDatabase(application).mediaDao()
 
-    val albums: StateFlow<List<Album>> = mediaDao.getAllMediaFlow()
-        .map { mediaList ->
-            if (mediaList.isNotEmpty()) {
-                Log.d("ALBUM_DEBUG", "LocalMedia fields Sample: ${mediaList.first()}")
-            }
+    val albumsFlow: StateFlow<List<AlbumUiModel>> = mediaDao.getAllMediaFlow()
+        .map { allMedia ->
+            val validMedia = allMedia.filter { !it.isDeleted }
+            val now = System.currentTimeMillis()
+            val thirtyDaysAgo = now - (30L * 24 * 60 * 60 * 1000)
 
-            // Group by bucketName
-            val bucketMap = mediaList.groupBy { 
-                it.bucketName.takeIf { name -> name.isNotBlank() } ?: "Other"
-            }
-            
-            Log.d("ALBUM_DEBUG", "Groups found: ${bucketMap.keys}")
+            val albums = mutableListOf<AlbumUiModel>()
 
-            val deviceAlbums = bucketMap.map { (name, items) ->
-                Album(
-                    name = name,
-                    coverUri = items.firstOrNull()?.path, // Use path for now, will fix URI in screen
-                    count = items.size,
-                    bucketName = name
+            // 1. Recent (last 30 days)
+            val recentMedia = validMedia.filter { it.dateAdded > thirtyDaysAgo }
+            if (recentMedia.isNotEmpty()) {
+                albums.add(
+                    AlbumUiModel(
+                        id = "recent",
+                        name = "Recent",
+                        count = recentMedia.size,
+                        coverUri = getMediaUri(recentMedia.first()),
+                        filter = { it.dateAdded > thirtyDaysAgo && !it.isDeleted }
+                    )
                 )
-            }.sortedBy { it.name }
+            }
 
-            val specialAlbums = listOf(
-                Album("Recents", mediaList.firstOrNull()?.path, mediaList.size, true),
-                Album("Favorites", mediaList.filter { it.isFavorite }.firstOrNull()?.path, mediaList.count { it.isFavorite }, true),
-                Album("Videos", mediaList.filter { it.mediaType.startsWith("video") }.firstOrNull()?.path, mediaList.count { it.mediaType.startsWith("video") }, true)
-            ).filter { it.count > 0 }
+            // 2. Favourites
+            val favoriteMedia = validMedia.filter { it.isFavorite }
+            if (favoriteMedia.isNotEmpty()) {
+                albums.add(
+                    AlbumUiModel(
+                        id = "favorites",
+                        name = "Favourites",
+                        count = favoriteMedia.size,
+                        coverUri = getMediaUri(favoriteMedia.first()),
+                        filter = { it.isFavorite && !it.isDeleted }
+                    )
+                )
+            }
 
-            specialAlbums + deviceAlbums
+            // 3. Device Folders
+            val folderGroups = validMedia.groupBy { it.bucketName }
+                .filter { it.key.isNotEmpty() }
+                .toSortedMap()
+
+            folderGroups.forEach { (bucketName, items) ->
+                albums.add(
+                    AlbumUiModel(
+                        id = "folder_$bucketName",
+                        name = bucketName,
+                        count = items.size,
+                        coverUri = getMediaUri(items.sortedByDescending { it.dateAdded }.first()),
+                        filter = { it.bucketName == bucketName && !it.isDeleted }
+                    )
+                )
+            }
+
+            albums
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    fun getMediaByAlbum(albumId: String): Flow<List<LocalMedia>> {
+        return mediaDao.getAllMediaFlow().map { allMedia ->
+            val validMedia = allMedia.filter { !it.isDeleted }
+            when {
+                albumId == "recent" -> {
+                    val thirtyDaysAgo = System.currentTimeMillis() - (30L * 24 * 60 * 60 * 1000)
+                    validMedia.filter { it.dateAdded > thirtyDaysAgo }.sortedByDescending { it.dateAdded }
+                }
+                albumId == "favorites" -> {
+                    validMedia.filter { it.isFavorite }.sortedByDescending { it.dateAdded }
+                }
+                albumId.startsWith("folder_") -> {
+                    val bucketName = albumId.removePrefix("folder_")
+                    validMedia.filter { it.bucketName == bucketName }.sortedByDescending { it.dateAdded }
+                }
+                else -> emptyList()
+            }
+        }
+    }
+
+    private fun getMediaUri(media: LocalMedia): String {
+        val baseUri = if (media.mediaType.startsWith("video", ignoreCase = true)) {
+            MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+        } else {
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        }
+        return ContentUris.withAppendedId(baseUri, media.id).toString()
+    }
 }

@@ -31,8 +31,11 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideAuthInterceptor(tokenDataStore: TokenDataStore): AuthInterceptor {
-        return AuthInterceptor(tokenDataStore)
+    fun provideAuthInterceptor(
+        tokenDataStore: TokenDataStore,
+        apiService: dagger.Lazy<ApiService>
+    ): AuthInterceptor {
+        return AuthInterceptor(tokenDataStore, apiService)
     }
 
     @Provides

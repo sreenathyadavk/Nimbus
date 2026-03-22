@@ -8,6 +8,7 @@ import com.localcloud.photosclient.data.LocalMedia
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import android.util.Log
 import java.io.File
 
 class MediaStoreManager(private val context: Context, private val settingsDataStore: com.localcloud.photosclient.data.preferences.SettingsDataStore) {
@@ -16,6 +17,7 @@ class MediaStoreManager(private val context: Context, private val settingsDataSt
     private val mediaDao = db.mediaDao()
 
     suspend fun scanAndSyncMediaStore() = withContext(Dispatchers.IO) {
+        Log.d("SCAN_DEBUG", "Starting MediaStore scan")
         val autoSync = settingsDataStore.autoSyncEnabled.first()
         val projection = arrayOf(
             MediaStore.Files.FileColumns._ID,
@@ -35,7 +37,6 @@ class MediaStoreManager(private val context: Context, private val settingsDataSt
                 + MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO)
 
         val sortOrder = "${MediaStore.Files.FileColumns.DATE_ADDED} DESC"
-
         val queryUri = MediaStore.Files.getContentUri("external")
 
         context.contentResolver.query(
@@ -45,6 +46,9 @@ class MediaStoreManager(private val context: Context, private val settingsDataSt
             null,
             sortOrder
         )?.use { cursor ->
+            val count = cursor.count
+            Log.d("SCAN_DEBUG", "Found $count items in MediaStore")
+
             val idCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
             val pathCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATA)
             val dateCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_ADDED)
@@ -65,13 +69,12 @@ class MediaStoreManager(private val context: Context, private val settingsDataSt
                 val height = if (heightCol != -1) cursor.getInt(heightCol) else 0
                 val bucketName = if (bucketCol != -1) cursor.getString(bucketCol) ?: "Unknown" else "Unknown"
 
-                val exists = mediaDao.exists(id)
-                if (!exists) {
-                    android.util.Log.d("SYNC_DEBUG", "MediaStoreManager: Found new item to insert - ID: $id, Path: $path, MediaType: $mediaTypeStr")
+                val existsInRoom = mediaDao.exists(id)
+                if (!existsInRoom) {
                     val localMedia = LocalMedia(
                         id = id,
                         path = path,
-                        hash = "", // Hash lazily computed during sync worker to save UI thread
+                        hash = "",
                         uploadStatus = if (autoSync) "PENDING" else "NONE",
                         dateAdded = dateAdded,
                         mediaType = mediaTypeStr,
@@ -80,13 +83,13 @@ class MediaStoreManager(private val context: Context, private val settingsDataSt
                         height = height,
                         bucketName = bucketName
                     )
-                    android.util.Log.d("SYNC_DEBUG", "MediaStoreManager: Inserted with uploadStatus=${localMedia.uploadStatus}")
+                    Log.d("SCAN_DEBUG", "Inserting into Room: ID=$id, Status=${localMedia.uploadStatus}")
                     mediaDao.insertMedia(localMedia)
                 }
             }
         }
         
-        // Trigger sync
+        Log.d("SCAN_DEBUG", "MediaStore scan completed. Triggering SyncManager.")
         SyncManager.forceSync(context)
     }
 }

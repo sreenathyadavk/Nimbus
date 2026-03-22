@@ -2,14 +2,12 @@ package com.localcloud.photosclient.presentation.albums
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.localcloud.photosclient.data.LocalMedia
 import com.localcloud.photosclient.presentation.timeline.TimelineScreen
@@ -20,57 +18,38 @@ import kotlinx.coroutines.flow.map
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AlbumDetailScreen(
-    album: Album,
+    albumId: String,
+    albumName: String,
     viewModel: MainViewModel,
-    onBack: () -> Unit,
+    albumsViewModel: AlbumsViewModel,
+    onBackClick: () -> Unit,
     onMediaClick: (LocalMedia, List<LocalMedia>) -> Unit
 ) {
-    val gridState = rememberLazyGridState()
-    
-    // Filtered flow for this specific album
-    val albumMediaFlow = remember(album) {
-        viewModel.timelineFlow.map { groups ->
-            groups.map { group ->
-                group.copy(items = group.items.filter { 
-                    if (album.isSpecial) {
-                        when (album.name) {
-                            "Favorites" -> it.isFavorite
-                            "Videos" -> it.mediaType.startsWith("video")
-                            else -> true // Recents
-                        }
-                    } else {
-                        it.bucketName == album.bucketName
-                    }
-                })
-            }.filter { it.items.isNotEmpty() }
+    val albumTimelineFlow = remember(albumId) {
+        albumsViewModel.getMediaByAlbum(albumId).map { list ->
+            listOf(MainViewModel.TimelineGroup(albumName, list))
         }
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(album.name, fontWeight = FontWeight.Bold) },
+                title = { Text(albumName, color = Color.White) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    IconButton(onClick = onBackClick) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = PureBlack,
-                    titleContentColor = Color.White,
-                    navigationIconContentColor = Color.White
-                )
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = PureBlack)
             )
         },
         containerColor = PureBlack
     ) { padding ->
-        Box(modifier = Modifier.padding(padding)) {
+        Box(modifier = Modifier.padding(padding).fillMaxSize()) {
             TimelineScreen(
                 viewModel = viewModel,
                 onMediaClick = onMediaClick,
-                gridState = gridState,
-                // We'll need to update TimelineScreen to accept an optional flow, 
-                // but for now we follow the spec of "filtered grid"
+                overrideTimelineFlow = albumTimelineFlow
             )
         }
     }

@@ -17,19 +17,19 @@ data class AlbumStats(
 @Dao
 interface MediaDao {
 
-    @Query("SELECT * FROM local_media WHERE isDeleted = 0 ORDER BY dateAdded DESC")
+    @Query("SELECT * FROM local_media WHERE is_deleted = 0 ORDER BY dateAdded DESC")
     fun getAllMediaFlow(): Flow<List<LocalMedia>>
 
-    @Query("SELECT * FROM local_media WHERE isFavorite = 1 AND isDeleted = 0 ORDER BY dateAdded DESC")
-    fun getFavoritesFlow(): Flow<List<LocalMedia>>
+    @Query("SELECT * FROM local_media WHERE is_favorite = 1 AND is_deleted = 0 ORDER BY dateAdded DESC")
+    fun getFavorites(): Flow<List<LocalMedia>>
 
-    @Query("SELECT * FROM local_media WHERE isDeleted = 1 ORDER BY deletedAt DESC")
-    fun getTrashFlow(): Flow<List<LocalMedia>>
+    @Query("SELECT * FROM local_media WHERE is_deleted = 1 ORDER BY dateAdded DESC")
+    fun getDeleted(): Flow<List<LocalMedia>>
 
-    @Query("SELECT * FROM local_media WHERE bucketName = :bucketName AND isDeleted = 0 ORDER BY dateAdded DESC")
+    @Query("SELECT * FROM local_media WHERE bucketName = :bucketName AND is_deleted = 0 ORDER BY dateAdded DESC")
     fun getMediaByBucketFlow(bucketName: String): Flow<List<LocalMedia>>
 
-    @Query("SELECT bucketName, MAX(dateAdded) as lastDate, COUNT(*) as count, (SELECT id FROM local_media lm2 WHERE lm2.bucketName = local_media.bucketName AND lm2.isDeleted = 0 ORDER BY dateAdded DESC LIMIT 1) as lastMediaId FROM local_media WHERE isDeleted = 0 GROUP BY bucketName ORDER BY lastDate DESC")
+    @Query("SELECT bucketName, MAX(dateAdded) as lastDate, COUNT(*) as count, (SELECT id FROM local_media lm2 WHERE lm2.bucketName = local_media.bucketName AND lm2.is_deleted = 0 ORDER BY dateAdded DESC LIMIT 1) as lastMediaId FROM local_media WHERE is_deleted = 0 GROUP BY bucketName ORDER BY lastDate DESC")
     fun getAlbumsFlow(): Flow<List<AlbumStats>>
 
     @Query("SELECT * FROM local_media WHERE (uploadStatus = 'PENDING' OR uploadStatus = 'FAILED') AND retryCount < 5")
@@ -46,6 +46,9 @@ interface MediaDao {
 
     @Query("UPDATE local_media SET uploadStatus = :status, retryCount = :retryCount, lastAttempt = :timestamp, progress = 0, remoteId = :remoteId WHERE id = :id")
     suspend fun updateStatus(id: Long, status: String, retryCount: Int, timestamp: Long, remoteId: String? = null)
+
+    @Query("UPDATE local_media SET uploadStatus = :status WHERE id = :id")
+    suspend fun updateUploadStatus(id: Long, status: String)
 
     @Query("UPDATE local_media SET remoteId = :remoteId WHERE id = :id")
     suspend fun updateRemoteId(id: Long, remoteId: String)
@@ -65,11 +68,23 @@ interface MediaDao {
     @Query("SELECT EXISTS(SELECT * FROM local_media WHERE id = :id)")
     suspend fun exists(id: Long): Boolean
 
-    @Query("SELECT * FROM local_media WHERE uploadStatus = 'SUCCESS' AND localAvailability = :availability AND isDeleted = 0")
+    @Query("SELECT * FROM local_media WHERE uploadStatus = 'SUCCESS' AND localAvailability = :availability AND is_deleted = 0")
     suspend fun getRemovableMedia(
         availability: LocalAvailability = LocalAvailability.LOCAL_AVAILABLE
     ): List<LocalMedia>
 
+    @Query("UPDATE local_media SET is_favorite = :fav WHERE id = :id")
+    suspend fun setFavorite(id: Long, fav: Boolean)
+
+    @Query("UPDATE local_media SET is_deleted = :deleted WHERE id = :id")
+    suspend fun setDeleted(id: Long, deleted: Boolean)
+
+    @Query("DELETE FROM local_media WHERE id = :id")
+    suspend fun permanentlyDelete(id: Long)
+
     @Query("UPDATE local_media SET localAvailability = :availability WHERE id = :id")
     suspend fun updateLocalAvailability(id: Long, availability: LocalAvailability)
+
+    @Query("SELECT * FROM local_media WHERE is_deleted = 1 AND deletedAt < :timestamp")
+    suspend fun getItemsDeletedBefore(timestamp: Long): List<LocalMedia>
 }

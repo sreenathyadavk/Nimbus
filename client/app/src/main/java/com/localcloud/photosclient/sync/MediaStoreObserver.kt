@@ -22,21 +22,19 @@ class MediaStoreObserver(
 
     override fun onChange(selfChange: Boolean, uri: Uri?) {
         super.onChange(selfChange, uri)
-        android.util.Log.d("SYNC_DEBUG", "MediaStoreObserver: onChange triggered for uri: $uri")
         
-        // Debounce triggers to avoid multiple rapid scans
+        // Debounce triggers to avoid multiple rapid scans (burst photo mode)
         debounceJob?.cancel()
         debounceJob = scope.launch(Dispatchers.IO) {
-            android.util.Log.d("SYNC_DEBUG", "MediaStoreObserver: Debounce job starting sync after 2000ms")
-            delay(2000) // 2 second debounce
+            delay(1000) // 1 second debounce wait after last change
             mediaStoreManager.scanAndSyncMediaStore()
         }
     }
 
-    fun register() {
+    fun startObserving() {
         context.contentResolver.registerContentObserver(
             MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-            true,
+            true, // notifyForDescendants
             this
         )
         context.contentResolver.registerContentObserver(
@@ -46,7 +44,7 @@ class MediaStoreObserver(
         )
     }
 
-    fun unregister() {
+    fun stopObserving() {
         context.contentResolver.unregisterContentObserver(this)
         debounceJob?.cancel()
     }

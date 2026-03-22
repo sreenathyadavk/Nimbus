@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <style name="Theme.PhotosAPP" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <!-- Status Bar -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+        
+        <!-- Navigation Bar -->
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        
+        <!-- Window Background -->
+        <item name="android:windowBackground">@android:color/black</item>
+    </style>
+</resources>

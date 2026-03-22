@@ -2,15 +2,17 @@ package com.localcloud.photosclient.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-val PureBlack = Color(0xFF000000)
-val DarkSurface = Color(0xFF0A0A0A)
-val DarkSurfaceVariant = Color(0xFF1A1A1A)
-val BottomNavBackground = Color(0xFF0D0D0D)
+val PureBlack     = Color(0xFF000000)
+val SurfaceDark   = Color(0xFF0A0A0A)
+val CardDark      = Color(0xFF1A1A1A)
+val AccentOrange  = Color(0xFFE8A020)   // refined accent
+val TextPrimary   = Color(0xFFFFFFFF)
+val TextSecondary = Color(0xFF888888)
+val NavBg         = Color(0xFF0D0D0D)
+val QuickActionBg = Color(0xFF2A2A2A)
 
-val SamsungBlue = Color(0xFF4FC3F7)
-val InactiveGrey = Color(0xFF888888)
-val UnselectedNav = Color(0xFF666666)
-
-val White = Color(0xFFFFFFFF)
-val LightGrey = Color(0xFFCCCCCC)
-val ScrimBlack = Color(0x99000000)
+// Material 3 mappings for convenience
+val Primary = AccentOrange
+val Secondary = Color(0xFF333333)
+val Tertiary = Color(0xFF666666)
+val White = Color.White

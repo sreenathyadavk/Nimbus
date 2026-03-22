@@ -19,5 +19,8 @@ data class MediaItem(
     val height: Int,
     val duration: Long? = null,
     val remoteId: String? = null,
-    val localAvailability: LocalAvailability = LocalAvailability.LOCAL_AVAILABLE
+    val uploadStatus: String = "SUCCESS", // Default to success if coming from cloud, but overridden in mapping
+    val localAvailability: LocalAvailability = LocalAvailability.LOCAL_AVAILABLE,
+    val isFavorite: Boolean = false,
+    val isDeleted: Boolean = false
 )

@@ -24,4 +24,10 @@ object DatabaseModule {
     fun provideMediaDao(database: AppDatabase): MediaDao {
         return database.mediaDao()
     }
+
+    @dagger.hilt.EntryPoint
+    @dagger.hilt.InstallIn(dagger.hilt.components.SingletonComponent::class)
+    interface MediaDaoEntryPoint {
+        fun mediaDao(): MediaDao
+    }
 }
