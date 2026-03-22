@@ -124,7 +124,7 @@ graph TD
 ---
 
 ## 🤝 Contributing
-Please feel free to submit a Pull Request. We appreciate all contributions that improve UI smoothness or backend performance!
+Feel free to submit a Pull Request.
 
 ## 📄 License
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
